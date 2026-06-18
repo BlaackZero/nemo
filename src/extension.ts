@@ -1,10 +1,14 @@
 import * as vscode from 'vscode';
+import { isCopilotScope } from './copilotMemoryPaths';
 import { i18n } from './i18n';
 import { injectMemoryIntoChat } from './chatIntegration';
+import { importCandidates } from './memoryImport';
+import { scanImportCandidates, ImportCandidate } from './memoryImportScan';
+import { migrateLegacyStorageWizard } from './memoryMigrate';
 import { getFileMeta, getFolderMeta } from './memoryManifest';
 import { MemoryManager } from './memoryManager';
 import { getDefaultIconForNode, pickNodeStyle } from './nodeStyle';
-import { shareToRepo, unshareFromRepo } from './memorySync';
+import { promoteToGit, syncToCopilotRepo } from './memorySync';
 import {
   getParentFolderRelativeFromItem,
   getScopeFromItem,
@@ -15,7 +19,11 @@ import {
   resolveFolderNode,
   resolveTreeItem,
 } from './memoryTreeProvider';
-import { isMemoryFile, isMemoryFolder } from './types';
+import { ImportTarget, isMemoryFile, isMemoryFolder } from './types';
+
+interface ImportPickItem extends vscode.QuickPickItem {
+  candidate: ImportCandidate;
+}
 
 export function activate(context: vscode.ExtensionContext): void {
   const manager = new MemoryManager(context);
@@ -35,23 +43,19 @@ export function activate(context: vscode.ExtensionContext): void {
     treeView,
     vscode.workspace.onDidChangeWorkspaceFolders(refresh),
     vscode.workspace.onDidChangeConfiguration((event) => {
-      if (
-        event.affectsConfiguration('nemo.storageLocation') ||
-        event.affectsConfiguration('nemo.repoIdStrategy') ||
-        event.affectsConfiguration('nemo.sharedPath')
-      ) {
+      if (event.affectsConfiguration('nemo.sharedPath')) {
         refresh();
       }
     }),
     vscode.commands.registerCommand('nemo.refresh', refresh),
     vscode.commands.registerCommand('nemo.openSharedFolder', async () => {
-      const sharedRoot = manager.getSharedMemoryDir();
+      const sharedRoot = manager.getSharedGitDir();
       if (!sharedRoot) {
         void vscode.window.showWarningMessage(i18n.warning.noWorkspace());
         return;
       }
 
-      await manager.ensureScopeDir('shared');
+      await manager.ensureScopeDir('sharedGit');
       const uri = vscode.Uri.file(sharedRoot);
       await vscode.commands.executeCommand('revealInExplorer', uri);
     }),
@@ -95,26 +99,30 @@ export function activate(context: vscode.ExtensionContext): void {
           return;
         }
 
-        const formatPick = await vscode.window.showQuickPick(
-          [
-            {
-              label: i18n.command.formatMarkdown(),
-              value: 'markdown' as const,
-            },
-            { label: i18n.command.formatJson(), value: 'json' as const },
-          ],
-          { placeHolder: i18n.prompt.fileFormat() }
-        );
+        let format: 'markdown' | 'json' = 'markdown';
+        if (scope === 'sharedGit') {
+          const formatPick = await vscode.window.showQuickPick(
+            [
+              {
+                label: i18n.command.formatMarkdown(),
+                value: 'markdown' as const,
+              },
+              { label: i18n.command.formatJson(), value: 'json' as const },
+            ],
+            { placeHolder: i18n.prompt.fileFormat() }
+          );
 
-        if (!formatPick) {
-          return;
+          if (!formatPick) {
+            return;
+          }
+          format = formatPick.value;
         }
 
         try {
           const created = await manager.createMemory(
             scope,
             name.trim(),
-            formatPick.value,
+            format,
             parentRelative
           );
           refresh();
@@ -151,64 +159,64 @@ export function activate(context: vscode.ExtensionContext): void {
       }
     ),
     vscode.commands.registerCommand(
-      'nemo.shareToRepo',
+      'nemo.syncToCopilotRepo',
       async (item?: MemoryTreeItem) => {
         const node = resolveAnyNode(treeView, item);
-        if (!node || node.scope !== 'personal') {
+        if (!node || node.scope !== 'sharedGit') {
           void vscode.window.showWarningMessage(
-            i18n.warning.selectPersonalToShare()
+            i18n.warning.selectSharedGitToSync()
           );
           return;
         }
 
-        const moveLabel = i18n.command.move();
+        const copyLabel = i18n.command.copy();
         const confirm = await vscode.window.showWarningMessage(
-          i18n.warning.confirmShare(node.relativePath),
+          i18n.warning.confirmSyncToCopilot(node.relativePath),
           { modal: true },
-          moveLabel
+          copyLabel
         );
 
-        if (confirm !== moveLabel) {
+        if (confirm !== copyLabel) {
           return;
         }
 
         try {
-          await shareToRepo(manager, node);
+          await syncToCopilotRepo(manager, node, false);
           refresh();
-          void vscode.window.showInformationMessage(i18n.info.sharedMoved());
+          void vscode.window.showInformationMessage(i18n.info.syncedToCopilot());
         } catch (error) {
-          showError(i18n.error.shareToRepo(), error);
+          showError(i18n.error.syncToCopilotRepo(), error);
         }
       }
     ),
     vscode.commands.registerCommand(
-      'nemo.unshareFromRepo',
+      'nemo.promoteToGit',
       async (item?: MemoryTreeItem) => {
         const node = resolveAnyNode(treeView, item);
-        if (!node || node.scope !== 'shared') {
+        if (!node || !isCopilotScope(node.scope)) {
           void vscode.window.showWarningMessage(
-            i18n.warning.selectSharedToUnshare()
+            i18n.warning.selectCopilotToPromote()
           );
           return;
         }
 
-        const moveLabel = i18n.command.move();
+        const copyLabel = i18n.command.copy();
         const confirm = await vscode.window.showWarningMessage(
-          i18n.warning.confirmUnshare(node.relativePath),
+          i18n.warning.confirmPromoteToGit(node.relativePath),
           { modal: true },
-          moveLabel
+          copyLabel
         );
 
-        if (confirm !== moveLabel) {
+        if (confirm !== copyLabel) {
           return;
         }
 
         try {
-          await unshareFromRepo(manager, node);
+          await promoteToGit(manager, node, false);
           refresh();
-          void vscode.window.showInformationMessage(i18n.info.personalMoved());
+          void vscode.window.showInformationMessage(i18n.info.promotedToGit());
         } catch (error) {
-          showError(i18n.error.unshareFromRepo(), error);
+          showError(i18n.error.promoteToGit(), error);
         }
       }
     ),
@@ -310,7 +318,8 @@ export function activate(context: vscode.ExtensionContext): void {
       'nemo.setNodeStyle',
       async (item?: MemoryTreeItem) => {
         const resolved = resolveTreeItem(treeView, item);
-        if (!resolved?.node) {
+        if (!resolved?.node || resolved.node.scope !== 'sharedGit') {
+          void vscode.window.showWarningMessage(i18n.error.stylesSharedGitOnly());
           return;
         }
 
@@ -356,7 +365,98 @@ export function activate(context: vscode.ExtensionContext): void {
           showError(i18n.error.setStyle(), error);
         }
       }
-    )
+    ),
+    vscode.commands.registerCommand('nemo.importContext', async () => {
+      const targetPick = await vscode.window.showQuickPick(
+        [
+          {
+            label: i18n.import.targetCopilotRepo(),
+            value: 'copilotRepo' as ImportTarget,
+          },
+          {
+            label: i18n.import.targetSharedGit(),
+            value: 'sharedGit' as ImportTarget,
+          },
+          {
+            label: i18n.import.targetBoth(),
+            value: 'both' as ImportTarget,
+          },
+        ],
+        { placeHolder: i18n.import.targetTitle() }
+      );
+
+      if (!targetPick) {
+        return;
+      }
+
+      const candidates = await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: i18n.import.scanning(),
+        },
+        () => scanImportCandidates(manager, targetPick.value)
+      );
+
+      if (candidates.length === 0) {
+        void vscode.window.showInformationMessage(i18n.import.noneFound());
+        return;
+      }
+
+      const pickItems: ImportPickItem[] = candidates.map((candidate) => ({
+        label: candidate.label,
+        description: candidate.description,
+        detail: candidate.conflict
+          ? `${candidate.workspaceRelative} — ${i18n.import.conflictSuffix()}`
+          : candidate.workspaceRelative,
+        picked: !candidate.conflict,
+        candidate,
+      }));
+
+      const selected = await vscode.window.showQuickPick(pickItems, {
+        canPickMany: true,
+        matchOnDescription: true,
+        matchOnDetail: true,
+        placeHolder: i18n.import.pickTitle(),
+      });
+
+      if (!selected || selected.length === 0) {
+        void vscode.window.showInformationMessage(i18n.import.nothingSelected());
+        return;
+      }
+
+      const moveLabel = i18n.command.move();
+      const confirm = await vscode.window.showWarningMessage(
+        i18n.import.confirmMove(selected.length, targetPick.label),
+        { modal: true },
+        moveLabel
+      );
+
+      if (confirm !== moveLabel) {
+        return;
+      }
+
+      try {
+        const result = await importCandidates(
+          manager,
+          selected.map((item) => item.candidate),
+          targetPick.value
+        );
+        refresh();
+        void vscode.window.showInformationMessage(
+          i18n.import.done(result.moved.length, result.skipped.length)
+        );
+      } catch (error) {
+        showError(i18n.error.importContext(), error);
+      }
+    }),
+    vscode.commands.registerCommand('nemo.migrateLegacyStorage', async () => {
+      try {
+        await migrateLegacyStorageWizard(manager);
+        refresh();
+      } catch (error) {
+        showError(i18n.error.migrateLegacy(), error);
+      }
+    })
   );
 
   refresh();

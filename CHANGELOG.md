@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-06-18
+
+### Added
+
+- **Native Copilot memory management** — sidebar sections for **Repository memory** (`/memories/repo/`) and **User memory** (`/memories/`), reading/writing `GitHub.copilot-chat/memory-tool` paths on disk.
+- **`nemo.syncToCopilotRepo`** — copy Shared (Git) → Copilot repository memory.
+- **`nemo.promoteToGit`** — copy Copilot memory → Shared (Git).
+- **`nemo.migrateLegacyStorage`** — one-time migration from v1 `~/.nemo-store/`.
+- Module [`copilotMemoryPaths.ts`](src/copilotMemoryPaths.ts) centralizing Copilot storage resolution.
+
+### Changed (breaking)
+
+- `MemoryScope`: `personal` / `shared` → `copilotRepo` / `copilotUser` / `sharedGit`.
+- Import wizard default destination: **Copilot repository memory** (optional Shared Git or both).
+- Colors/icons manifest (`.nemo.json`) applies to **Shared (Git)** only.
+- Removed `nemo.shareToRepo` / `nemo.unshareFromRepo` (replaced by sync/promote commands).
+
+## [1.1.0] - 2026-06-18
+
+### Added
+
+- **Import context to Nemo** wizard (`nemo.importContext`): scans personal memories, AI convention paths (Copilot, Cursor rules, `AGENTS.md`), and repo markdown; multi‑select QuickPick; **move** into `.nemo/` with confirmation.
+- Optional `importedFrom` field on shared manifest entries for audit trail.
+
 ## [1.0.0] - 2026-06-18
 
 ### Added

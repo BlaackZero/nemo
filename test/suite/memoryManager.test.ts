@@ -13,7 +13,7 @@ import {
   MemoryManager,
   sanitizeMemoryBaseName,
 } from '../../src/memoryManager';
-import { isMemoryFile, isMemoryFolder } from '../../src/types';
+import { isMemoryFile, isMemoryFolder, MemoryScope } from '../../src/types';
 
 suite('memoryManifest', () => {
   test('compareByOrder respects explicit order values', () => {
@@ -101,10 +101,14 @@ suite('memoryManager file operations', () => {
     });
 
     Object.defineProperty(manager, 'getRootForScope', {
-      value: (scope: 'personal' | 'shared') =>
-        scope === 'shared'
-          ? path.join(workspaceRoot, '.nemo')
-          : path.join(tempRoot, 'store', 'test-repo'),
+      value: (scope: MemoryScope) => {
+        const roots: Record<MemoryScope, string> = {
+          copilotRepo: path.join(tempRoot, 'copilot-repo'),
+          copilotUser: path.join(tempRoot, 'copilot-user'),
+          sharedGit: path.join(workspaceRoot, '.nemo'),
+        };
+        return roots[scope];
+      },
     });
   });
 
@@ -113,55 +117,55 @@ suite('memoryManager file operations', () => {
   });
 
   test('createMemory writes default markdown content without overwrite', async () => {
-    const created = await manager.createMemory('personal', 'backend-basics', 'markdown');
+    const created = await manager.createMemory('copilotRepo', 'backend-basics', 'markdown');
     const content = await fs.readFile(created.filePath, 'utf8');
 
     assert.strictEqual(created.name, 'backend-basics.md');
     assert.strictEqual(created.relativePath, 'backend-basics.md');
     assert.strictEqual(created.kind, 'file');
-    assert.strictEqual(created.scope, 'personal');
+    assert.strictEqual(created.scope, 'copilotRepo');
     assert.match(content, /^# Backend Basics/);
     assert.match(content, /## Overview/);
     assert.doesNotMatch(content, /Contexto|Reglas/);
 
     await assert.rejects(
-      () => manager.createMemory('personal', 'backend-basics', 'markdown'),
+      () => manager.createMemory('copilotRepo', 'backend-basics', 'markdown'),
       /EEXIST|exist/
     );
   });
 
   test('createFolder and nested memory are listed by listChildren', async () => {
-    await manager.createFolder('personal', 'backend');
-    await manager.createMemory('personal', 'reglas', 'markdown', 'backend');
+    await manager.createFolder('copilotRepo', 'backend');
+    await manager.createMemory('copilotRepo', 'reglas', 'markdown', 'backend');
 
-    const rootChildren = await manager.listChildren('personal');
+    const rootChildren = await manager.listChildren('copilotRepo');
     const backendFolder = rootChildren.find(
       (node) => isMemoryFolder(node) && node.name === 'backend'
     );
     assert.ok(backendFolder && isMemoryFolder(backendFolder));
 
-    const backendChildren = await manager.listChildren('personal', 'backend');
+    const backendChildren = await manager.listChildren('copilotRepo', 'backend');
     assert.strictEqual(backendChildren.length, 1);
     assert.ok(isMemoryFile(backendChildren[0]));
     assert.strictEqual(backendChildren[0]?.name, 'reglas.md');
   });
 
-  test('shared scope uses workspace folder', async () => {
-    await manager.createMemory('shared', 'team-rules', 'markdown');
+  test('sharedGit scope uses workspace folder', async () => {
+    await manager.createMemory('sharedGit', 'team-rules', 'markdown');
 
     const sharedPath = path.join(workspaceRoot, '.nemo', 'team-rules.md');
     await fs.access(sharedPath);
 
-    const sharedChildren = await manager.listChildren('shared');
+    const sharedChildren = await manager.listChildren('sharedGit');
     assert.strictEqual(sharedChildren.length, 1);
   });
 
   test('listChildren ignores manifest and non-memory files', async () => {
-    const dir = await manager.ensureScopeDir('personal');
+    const dir = await manager.ensureScopeDir('copilotRepo');
     await fs.writeFile(path.join(dir, 'notes.txt'), 'ignore me');
-    await manager.createMemory('personal', 'valid', 'markdown');
+    await manager.createMemory('copilotRepo', 'valid', 'markdown');
 
-    const children = await manager.listChildren('personal');
+    const children = await manager.listChildren('copilotRepo');
     const files = children.filter(isMemoryFile);
 
     assert.strictEqual(files.length, 1);
@@ -169,10 +173,10 @@ suite('memoryManager file operations', () => {
   });
 
   test('moveNode moves file into folder within scope', async () => {
-    await manager.createFolder('personal', 'backend');
-    const created = await manager.createMemory('personal', 'reglas', 'markdown');
+    await manager.createFolder('copilotRepo', 'backend');
+    const created = await manager.createMemory('copilotRepo', 'reglas', 'markdown');
     const moved = await manager.moveNode(
-      'personal',
+      'copilotRepo',
       created.relativePath,
       'backend',
       false
@@ -183,13 +187,13 @@ suite('memoryManager file operations', () => {
   });
 
   test('renameNode renames folder metadata', async () => {
-    await manager.createFolder('personal', 'backend');
-    await manager.createMemory('personal', 'reglas', 'markdown', 'backend');
+    await manager.createFolder('copilotRepo', 'backend');
+    await manager.createMemory('copilotRepo', 'reglas', 'markdown', 'backend');
 
-    const renamed = await manager.renameNode('personal', 'backend', 'api', true);
+    const renamed = await manager.renameNode('copilotRepo', 'backend', 'api', true);
     assert.strictEqual(renamed.relativePath, 'api');
 
-    const children = await manager.listChildren('personal');
+    const children = await manager.listChildren('copilotRepo');
     assert.ok(children.some((node) => isMemoryFolder(node) && node.name === 'api'));
   });
 
@@ -203,8 +207,8 @@ suite('memoryManager file operations', () => {
   });
 
   test('deleteMemory removes file', async () => {
-    const created = await manager.createMemory('personal', 'temp', 'markdown');
-    await manager.deleteMemory('personal', created.filePath, created.relativePath);
+    const created = await manager.createMemory('copilotRepo', 'temp', 'markdown');
+    await manager.deleteMemory('copilotRepo', created.filePath, created.relativePath);
 
     await assert.rejects(() => fs.access(created.filePath));
   });

@@ -64,7 +64,7 @@ suite('chatIntegration', () => {
 
     const memory: MemoryFile = {
       kind: 'file',
-      scope: 'personal',
+      scope: 'copilotRepo',
       name: 'rules.md',
       relativePath: 'rules.md',
       filePath: '/tmp/store/rules.md',
@@ -95,7 +95,7 @@ suite('chatIntegration', () => {
 
     const memory: MemoryFile = {
       kind: 'file',
-      scope: 'personal',
+      scope: 'copilotRepo',
       name: 'rules.md',
       relativePath: 'rules.md',
       filePath: '/tmp/store/rules.md',

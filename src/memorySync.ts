@@ -1,45 +1,65 @@
-import * as fs from 'fs/promises';
 import * as path from 'path';
 import { i18n } from './i18n';
-import { movePathCrossDevice, MemoryManager } from './memoryManager';
-import { isMemoryFolder, MemoryNode } from './types';
+import { readManifest, removeManifestPaths, writeManifest } from './memoryManifest';
+import {
+  copyPathCrossDevice,
+  MemoryManager,
+  movePathCrossDevice,
+} from './memoryManager';
+import { isMemoryFolder, MemoryNode, MemoryScope } from './types';
 
-export async function shareToRepo(
+async function copyOrMoveNode(
   manager: MemoryManager,
-  node: MemoryNode
+  node: MemoryNode,
+  fromScope: MemoryScope,
+  toScope: MemoryScope,
+  move: boolean
 ): Promise<MemoryNode> {
-  if (node.scope !== 'personal') {
-    throw new Error(i18n.error.sharePersonalOnly());
-  }
-
-  const personalRoot = manager.getRootForScope('personal');
-  const sharedRoot = await manager.ensureScopeDir('shared');
-  if (!personalRoot) {
-    throw new Error(i18n.error.personalStorageUnavailable());
+  const fromRoot = manager.getRootForScope(fromScope);
+  const toRoot = await manager.ensureScopeDir(toScope);
+  if (!fromRoot) {
+    throw new Error(i18n.error.storageUnavailable());
   }
 
   const fromAbsolute = isMemoryFolder(node)
     ? node.absolutePath
     : node.filePath;
-  const toAbsolute = path.join(sharedRoot, node.relativePath);
+  const toAbsolute = path.join(toRoot, node.relativePath);
 
   if (await manager.pathExists(toAbsolute)) {
-    throw new Error(i18n.error.alreadyExistsShared(node.relativePath));
+    throw new Error(i18n.error.alreadyExistsAtTarget(node.relativePath));
   }
 
-  await movePathCrossDevice(fromAbsolute, toAbsolute);
+  if (move) {
+    await movePathCrossDevice(fromAbsolute, toAbsolute);
+  } else {
+    await copyPathCrossDevice(fromAbsolute, toAbsolute);
+  }
 
-  await manager.transferManifestEntry(
-    'personal',
-    'shared',
-    node.relativePath,
-    isMemoryFolder(node)
-  );
+  if (toScope === 'sharedGit') {
+    const manifest = await readManifest(toRoot);
+    if (isMemoryFolder(node)) {
+      manifest.folders[node.relativePath] =
+        manifest.folders[node.relativePath] ?? {};
+    } else {
+      manifest.files[node.relativePath] = manifest.files[node.relativePath] ?? {};
+    }
+    await writeManifest(toRoot, manifest);
+  }
+
+  if (move && fromScope === 'sharedGit') {
+    const fromManifestRoot = manager.getRootForScope(fromScope);
+    if (fromManifestRoot) {
+      const manifest = await readManifest(fromManifestRoot);
+      removeManifestPaths(manifest, node.relativePath, isMemoryFolder(node));
+      await writeManifest(fromManifestRoot, manifest);
+    }
+  }
 
   if (isMemoryFolder(node)) {
     return {
       kind: 'folder',
-      scope: 'shared',
+      scope: toScope,
       name: node.name,
       relativePath: node.relativePath,
       absolutePath: toAbsolute,
@@ -48,7 +68,7 @@ export async function shareToRepo(
 
   return {
     kind: 'file',
-    scope: 'shared',
+    scope: toScope,
     name: node.name,
     relativePath: node.relativePath,
     filePath: toAbsolute,
@@ -56,59 +76,38 @@ export async function shareToRepo(
   };
 }
 
-export async function unshareFromRepo(
+export async function syncToCopilotRepo(
   manager: MemoryManager,
-  node: MemoryNode
+  node: MemoryNode,
+  move = false
 ): Promise<MemoryNode> {
-  if (node.scope !== 'shared') {
-    throw new Error(i18n.error.unshareSharedOnly());
+  if (node.scope !== 'sharedGit') {
+    throw new Error(i18n.error.syncFromSharedGitOnly());
   }
 
-  const personalRoot = await manager.ensureScopeDir('personal');
-  const sharedRoot = manager.getRootForScope('shared');
-  if (!sharedRoot) {
-    throw new Error(i18n.error.sharedStorageUnavailable());
-  }
-
-  const fromAbsolute = isMemoryFolder(node)
-    ? node.absolutePath
-    : node.filePath;
-  const toAbsolute = path.join(personalRoot, node.relativePath);
-
-  if (await manager.pathExists(toAbsolute)) {
-    throw new Error(i18n.error.alreadyExistsPersonal(node.relativePath));
-  }
-
-  await fsMkdirParent(toAbsolute);
-  await movePathCrossDevice(fromAbsolute, toAbsolute);
-
-  await manager.transferManifestEntry(
-    'shared',
-    'personal',
-    node.relativePath,
-    isMemoryFolder(node)
-  );
-
-  if (isMemoryFolder(node)) {
-    return {
-      kind: 'folder',
-      scope: 'personal',
-      name: node.name,
-      relativePath: node.relativePath,
-      absolutePath: toAbsolute,
-    };
-  }
-
-  return {
-    kind: 'file',
-    scope: 'personal',
-    name: node.name,
-    relativePath: node.relativePath,
-    filePath: toAbsolute,
-    format: node.format,
-  };
+  return copyOrMoveNode(manager, node, 'sharedGit', 'copilotRepo', move);
 }
 
-async function fsMkdirParent(fileOrFolderPath: string): Promise<void> {
-  await fs.mkdir(path.dirname(fileOrFolderPath), { recursive: true });
+export async function promoteToGit(
+  manager: MemoryManager,
+  node: MemoryNode,
+  move = false
+): Promise<MemoryNode> {
+  if (node.scope !== 'copilotRepo' && node.scope !== 'copilotUser') {
+    throw new Error(i18n.error.promoteFromCopilotOnly());
+  }
+
+  return copyOrMoveNode(manager, node, node.scope, 'sharedGit', move);
+}
+
+export async function copyNodeToScope(
+  manager: MemoryManager,
+  node: MemoryNode,
+  toScope: MemoryScope
+): Promise<MemoryNode> {
+  if (node.scope === toScope) {
+    throw new Error(i18n.error.sameSourceAndTarget());
+  }
+
+  return copyOrMoveNode(manager, node, node.scope, toScope, false);
 }

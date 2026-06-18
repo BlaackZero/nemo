@@ -75,6 +75,7 @@ export interface FileMeta {
   color?: ThemeColorId;
   icon?: ThemeIconId;
   order?: number;
+  importedFrom?: string;
 }
 
 export interface MemoryManifest {

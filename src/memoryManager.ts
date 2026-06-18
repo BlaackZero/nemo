@@ -1,9 +1,15 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as vscode from 'vscode';
+import {
+  isReservedCopilotUserEntry,
+  scopeUsesManifest,
+  virtualPathForScope,
+} from './copilotMemoryPaths';
 import { i18n } from './i18n';
 import {
   compareByOrder,
+  createEmptyManifest,
   ensureManifest,
   FileMeta,
   FolderMeta,
@@ -19,9 +25,9 @@ import {
   writeManifest,
 } from './memoryManifest';
 import {
-  getPersonalRoot,
+  getLegacyPersonalRoot,
   getRootForScope,
-  getSharedRoot,
+  getSharedGitRoot,
   readConfigFromWorkspace,
   resolveRepoIdentityFromWorkspace,
 } from './memoryStorePaths';
@@ -40,6 +46,10 @@ import {
 export class MemoryManager {
   constructor(private readonly context: vscode.ExtensionContext) {}
 
+  getExtensionContext(): vscode.ExtensionContext {
+    return this.context;
+  }
+
   getConfig(): MemoryManagerConfig {
     return readConfigFromWorkspace();
   }
@@ -52,17 +62,21 @@ export class MemoryManager {
     return resolveRepoIdentityFromWorkspace(this.getConfig().repoIdStrategy);
   }
 
+  /** @deprecated v1 — use getLegacyPersonalDir for migration only */
   getPersonalMemoryDir(): string | undefined {
-    return getPersonalRoot(this);
+    return getLegacyPersonalRoot(this);
+  }
+
+  getLegacyPersonalDir(): string | undefined {
+    return getLegacyPersonalRoot(this);
   }
 
   getSharedMemoryDir(): string | undefined {
-    return getSharedRoot(this);
+    return getSharedGitRoot(this);
   }
 
-  /** @deprecated Use getPersonalMemoryDir or getRootForScope */
-  getRepoMemoryDir(): string | undefined {
-    return this.getPersonalMemoryDir();
+  getSharedGitDir(): string | undefined {
+    return getSharedGitRoot(this);
   }
 
   getRootForScope(scope: MemoryScope): string | undefined {
@@ -101,13 +115,10 @@ export class MemoryManager {
     }
 
     await fs.mkdir(dir, { recursive: true });
-    await ensureManifest(dir);
+    if (scopeUsesManifest(scope)) {
+      await ensureManifest(dir);
+    }
     return dir;
-  }
-
-  /** @deprecated Use ensureScopeDir('personal') */
-  async ensureRepoDir(): Promise<string> {
-    return this.ensureScopeDir('personal');
   }
 
   isMemoryFileName(name: string): boolean {
@@ -123,6 +134,10 @@ export class MemoryManager {
   }
 
   async getManifest(scope: MemoryScope): Promise<MemoryManifest | undefined> {
+    if (!scopeUsesManifest(scope)) {
+      return undefined;
+    }
+
     const rootDir = this.getRootForScope(scope);
     if (!rootDir) {
       return undefined;
@@ -135,6 +150,10 @@ export class MemoryManager {
     scope: MemoryScope,
     manifest: MemoryManifest
   ): Promise<void> {
+    if (!scopeUsesManifest(scope)) {
+      return;
+    }
+
     const rootDir = await this.ensureScopeDir(scope);
     await writeManifest(rootDir, manifest);
   }
@@ -150,7 +169,9 @@ export class MemoryManager {
     }
 
     const parentRelative = this.normalizeRelativePath(parentRelativePath);
-    const manifest = await ensureManifest(rootDir);
+    const manifest = scopeUsesManifest(scope)
+      ? await ensureManifest(rootDir)
+      : createEmptyManifest();
 
     try {
       const entries = await fs.readdir(absoluteDir, { withFileTypes: true });
@@ -158,6 +179,14 @@ export class MemoryManager {
       const files: MemoryFile[] = [];
 
       for (const entry of entries) {
+        if (
+          scope === 'copilotUser' &&
+          !parentRelative &&
+          isReservedCopilotUserEntry(entry.name, entry.isDirectory())
+        ) {
+          continue;
+        }
+
         if (entry.isDirectory()) {
           const relativePath = parentRelative
             ? `${parentRelative}/${entry.name}`
@@ -177,6 +206,10 @@ export class MemoryManager {
           this.isMemoryFileName(entry.name) &&
           !this.isReservedFile(entry.name)
         ) {
+          if (scope !== 'sharedGit' && entry.name.endsWith('.json')) {
+            continue;
+          }
+
           const relativePath = parentRelative
             ? `${parentRelative}/${entry.name}`
             : entry.name;
@@ -191,22 +224,31 @@ export class MemoryManager {
         }
       }
 
-      folders.sort((a, b) => {
-        const metaA = getFolderMeta(manifest, a.relativePath);
-        const metaB = getFolderMeta(manifest, b.relativePath);
-        return compareByOrder(metaA.order, metaB.order, a.name, b.name);
-      });
+      if (scopeUsesManifest(scope)) {
+        folders.sort((a, b) => {
+          const metaA = getFolderMeta(manifest, a.relativePath);
+          const metaB = getFolderMeta(manifest, b.relativePath);
+          return compareByOrder(metaA.order, metaB.order, a.name, b.name);
+        });
 
-      files.sort((a, b) => {
-        const metaA = getFileMeta(manifest, a.relativePath);
-        const metaB = getFileMeta(manifest, b.relativePath);
-        return compareByOrder(metaA.order, metaB.order, a.name, b.name);
-      });
+        files.sort((a, b) => {
+          const metaA = getFileMeta(manifest, a.relativePath);
+          const metaB = getFileMeta(manifest, b.relativePath);
+          return compareByOrder(metaA.order, metaB.order, a.name, b.name);
+        });
+      } else {
+        folders.sort((a, b) => a.name.localeCompare(b.name));
+        files.sort((a, b) => a.name.localeCompare(b.name));
+      }
 
       return [...folders, ...files];
     } catch {
       return [];
     }
+  }
+
+  getVirtualPath(scope: MemoryScope, relativePath: string): string {
+    return virtualPathForScope(scope, relativePath);
   }
 
   getFolderMetaForNode(relativePath: string, manifest: MemoryManifest): FolderMeta {
@@ -240,12 +282,14 @@ export class MemoryManager {
 
     await fs.mkdir(absolutePath, { recursive: false });
 
-    const manifest = await readManifest(rootDir);
-    manifest.folders[relativePath] = {
-      ...manifest.folders[relativePath],
-      label: folderName.trim(),
-    };
-    await writeManifest(rootDir, manifest);
+    if (scopeUsesManifest(scope)) {
+      const manifest = await readManifest(rootDir);
+      manifest.folders[relativePath] = {
+        ...manifest.folders[relativePath],
+        label: folderName.trim(),
+      };
+      await writeManifest(rootDir, manifest);
+    }
 
     return {
       kind: 'folder',
@@ -262,6 +306,8 @@ export class MemoryManager {
     format: MemoryFormat,
     parentRelativePath?: string
   ): Promise<MemoryFile> {
+    const effectiveFormat =
+      scope === 'sharedGit' ? format : ('markdown' as MemoryFormat);
     const rootDir = await this.ensureScopeDir(scope);
     const parentRelative = this.normalizeRelativePath(parentRelativePath);
     const targetDir = parentRelative
@@ -270,20 +316,22 @@ export class MemoryManager {
 
     await fs.mkdir(targetDir, { recursive: true });
 
-    const ext = format === 'json' ? '.json' : '.md';
+    const ext = effectiveFormat === 'json' ? '.json' : '.md';
     const safeName = sanitizeMemoryBaseName(baseName);
     const fileName = `${safeName}${ext}`;
     const filePath = path.join(targetDir, fileName);
     const relativePath = parentRelative
       ? `${parentRelative}/${fileName}`
       : fileName;
-    const content = this.buildDefaultContent(baseName.trim(), format);
+    const content = this.buildDefaultContent(baseName.trim(), effectiveFormat);
 
     await fs.writeFile(filePath, content, { flag: 'wx' });
 
-    const manifest = await readManifest(rootDir);
-    manifest.files[relativePath] = manifest.files[relativePath] ?? {};
-    await writeManifest(rootDir, manifest);
+    if (scopeUsesManifest(scope)) {
+      const manifest = await readManifest(rootDir);
+      manifest.files[relativePath] = manifest.files[relativePath] ?? {};
+      await writeManifest(rootDir, manifest);
+    }
 
     return {
       kind: 'file',
@@ -291,7 +339,7 @@ export class MemoryManager {
       name: fileName,
       relativePath,
       filePath,
-      format,
+      format: effectiveFormat,
     };
   }
 
@@ -303,7 +351,7 @@ export class MemoryManager {
     const rootDir = this.getRootForScope(scope);
     await fs.unlink(filePath);
 
-    if (rootDir && relativePath) {
+    if (rootDir && relativePath && scopeUsesManifest(scope)) {
       const manifest = await readManifest(rootDir);
       removeManifestPaths(manifest, relativePath, false);
       await writeManifest(rootDir, manifest);
@@ -317,9 +365,11 @@ export class MemoryManager {
 
     await fs.rm(absolutePath, { recursive: true, force: true });
 
-    const manifest = await readManifest(rootDir);
-    removeManifestPaths(manifest, normalized, true);
-    await writeManifest(rootDir, manifest);
+    if (scopeUsesManifest(scope)) {
+      const manifest = await readManifest(rootDir);
+      removeManifestPaths(manifest, normalized, true);
+      await writeManifest(rootDir, manifest);
+    }
   }
 
   async renameNode(
@@ -346,9 +396,11 @@ export class MemoryManager {
 
     await fs.rename(fromAbsolute, toAbsolute);
 
-    const manifest = await readManifest(rootDir);
-    renameManifestPaths(manifest, from, toRelative, isFolder);
-    await writeManifest(rootDir, manifest);
+    if (scopeUsesManifest(scope)) {
+      const manifest = await readManifest(rootDir);
+      renameManifestPaths(manifest, from, toRelative, isFolder);
+      await writeManifest(rootDir, manifest);
+    }
 
     if (isFolder) {
       return {
@@ -402,9 +454,11 @@ export class MemoryManager {
     await fs.mkdir(path.dirname(toAbsolute), { recursive: true });
     await fs.rename(fromAbsolute, toAbsolute);
 
-    const manifest = await readManifest(rootDir);
-    renameManifestPaths(manifest, from, toRelative, isFolder);
-    await writeManifest(rootDir, manifest);
+    if (scopeUsesManifest(scope)) {
+      const manifest = await readManifest(rootDir);
+      renameManifestPaths(manifest, from, toRelative, isFolder);
+      await writeManifest(rootDir, manifest);
+    }
 
     if (isFolder) {
       return {
@@ -432,6 +486,10 @@ export class MemoryManager {
     orderedRelativePaths: string[],
     kind: 'folder' | 'file'
   ): Promise<void> {
+    if (!scopeUsesManifest(scope)) {
+      return;
+    }
+
     const rootDir = await this.ensureScopeDir(scope);
     const manifest = await readManifest(rootDir);
     updateSiblingOrder(
@@ -448,6 +506,10 @@ export class MemoryManager {
     relativePath: string,
     style: Partial<FolderMeta>
   ): Promise<void> {
+    if (!scopeUsesManifest(scope)) {
+      throw new Error(i18n.error.stylesSharedGitOnly());
+    }
+
     const rootDir = await this.ensureScopeDir(scope);
     const manifest = await readManifest(rootDir);
     manifest.folders[relativePath] = {
@@ -462,6 +524,10 @@ export class MemoryManager {
     relativePath: string,
     style: Partial<FileMeta>
   ): Promise<void> {
+    if (!scopeUsesManifest(scope)) {
+      throw new Error(i18n.error.stylesSharedGitOnly());
+    }
+
     const rootDir = await this.ensureScopeDir(scope);
     const manifest = await readManifest(rootDir);
     manifest.files[relativePath] = {
@@ -486,6 +552,10 @@ export class MemoryManager {
     relativePath: string,
     isFolder: boolean
   ): Promise<void> {
+    if (!scopeUsesManifest(fromScope) || !scopeUsesManifest(toScope)) {
+      return;
+    }
+
     const fromRoot = await this.ensureScopeDir(fromScope);
     const toRoot = await this.ensureScopeDir(toScope);
     const fromManifest = await readManifest(fromRoot);
@@ -546,4 +616,12 @@ export async function movePathCrossDevice(
     await fs.cp(sourceAbsolute, destinationAbsolute, { recursive: true });
     await fs.rm(sourceAbsolute, { recursive: true, force: true });
   }
+}
+
+export async function copyPathCrossDevice(
+  sourceAbsolute: string,
+  destinationAbsolute: string
+): Promise<void> {
+  await fs.mkdir(path.dirname(destinationAbsolute), { recursive: true });
+  await fs.cp(sourceAbsolute, destinationAbsolute, { recursive: true });
 }

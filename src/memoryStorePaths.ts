@@ -1,6 +1,10 @@
 import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
+import {
+  getCopilotRepoMemoryDir,
+  getCopilotUserMemoryDir,
+} from './copilotMemoryPaths';
 import { i18n } from './i18n';
 import { resolveRepoIdentity } from './repoIdResolver';
 import { MemoryManagerConfig, MemoryScope, RepoIdentity } from './types';
@@ -9,6 +13,7 @@ export interface StorePathContext {
   getConfig(): MemoryManagerConfig;
   getCurrentRepoIdentity(): RepoIdentity | undefined;
   getExtensionGlobalStoragePath(): string;
+  getExtensionContext(): vscode.ExtensionContext;
 }
 
 export function normalizeSharedPath(sharedPath: string): string {
@@ -23,7 +28,8 @@ export function getWorkspaceFolderPath(): string | undefined {
   return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 }
 
-export function getPersonalStorageRoot(context: StorePathContext): string {
+/** Legacy v1 personal store root (~/.nemo-store or extension globalStorage). */
+export function getLegacyPersonalStorageRoot(context: StorePathContext): string {
   const { storageLocation } = context.getConfig();
 
   if (storageLocation === 'globalStorage') {
@@ -33,16 +39,17 @@ export function getPersonalStorageRoot(context: StorePathContext): string {
   return path.join(os.homedir(), '.nemo-store');
 }
 
-export function getPersonalRoot(context: StorePathContext): string | undefined {
+/** Legacy v1 personal store for the current workspace repo id. */
+export function getLegacyPersonalRoot(context: StorePathContext): string | undefined {
   const identity = context.getCurrentRepoIdentity();
   if (!identity) {
     return undefined;
   }
 
-  return path.join(getPersonalStorageRoot(context), identity.repoId);
+  return path.join(getLegacyPersonalStorageRoot(context), identity.repoId);
 }
 
-export function getSharedRoot(context: StorePathContext): string | undefined {
+export function getSharedGitRoot(context: StorePathContext): string | undefined {
   const workspacePath = getWorkspaceFolderPath();
   if (!workspacePath) {
     return undefined;
@@ -52,13 +59,28 @@ export function getSharedRoot(context: StorePathContext): string | undefined {
   return path.join(workspacePath, sharedPath);
 }
 
+/** @deprecated Use getSharedGitRoot */
+export function getSharedRoot(context: StorePathContext): string | undefined {
+  return getSharedGitRoot(context);
+}
+
+/** @deprecated Use getLegacyPersonalRoot */
+export function getPersonalRoot(context: StorePathContext): string | undefined {
+  return getLegacyPersonalRoot(context);
+}
+
 export function getRootForScope(
   context: StorePathContext,
   scope: MemoryScope
 ): string | undefined {
-  return scope === 'shared'
-    ? getSharedRoot(context)
-    : getPersonalRoot(context);
+  switch (scope) {
+    case 'copilotRepo':
+      return getCopilotRepoMemoryDir(context.getExtensionContext());
+    case 'copilotUser':
+      return getCopilotUserMemoryDir(context.getExtensionContext());
+    case 'sharedGit':
+      return getSharedGitRoot(context);
+  }
 }
 
 export function createDefaultConfig(): MemoryManagerConfig {

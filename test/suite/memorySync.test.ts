@@ -3,8 +3,26 @@ import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 import { MemoryManager } from '../../src/memoryManager';
-import { shareToRepo, unshareFromRepo } from '../../src/memorySync';
-import { isMemoryFile, isMemoryFolder } from '../../src/types';
+import { promoteToGit, syncToCopilotRepo } from '../../src/memorySync';
+import { MemoryScope, isMemoryFile, isMemoryFolder } from '../../src/types';
+
+function mockScopeRoots(
+  manager: MemoryManager,
+  workspaceRoot: string,
+  tempRoot: string
+): Record<MemoryScope, string> {
+  const roots: Record<MemoryScope, string> = {
+    copilotRepo: path.join(tempRoot, 'copilot-repo'),
+    copilotUser: path.join(tempRoot, 'copilot-user'),
+    sharedGit: path.join(workspaceRoot, '.nemo'),
+  };
+
+  Object.defineProperty(manager, 'getRootForScope', {
+    value: (scope: MemoryScope) => roots[scope],
+  });
+
+  return roots;
+}
 
 suite('memorySync', () => {
   let tempRoot = '';
@@ -12,11 +30,12 @@ suite('memorySync', () => {
   let manager: MemoryManager;
 
   setup(async () => {
-    tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'repo-memory-sync-'));
+    tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'nemo-sync-'));
     workspaceRoot = path.join(tempRoot, 'workspace');
     await fs.mkdir(workspaceRoot, { recursive: true });
 
     manager = new MemoryManager({
+      storageUri: { fsPath: path.join(tempRoot, 'ws-storage', 'nemo-context') },
       globalStorageUri: { fsPath: path.join(tempRoot, 'global-storage') },
     } as never);
 
@@ -28,89 +47,66 @@ suite('memorySync', () => {
       }),
     });
 
-    Object.defineProperty(manager, 'getCurrentRepoIdentity', {
-      value: () => ({
-        repoId: 'test-repo',
-        displayName: 'test-repo',
-        workspacePath: workspaceRoot,
-      }),
-    });
-
-    Object.defineProperty(manager, 'getExtensionGlobalStoragePath', {
-      value: () => path.join(tempRoot, 'global-storage'),
-    });
-
-    Object.defineProperty(manager, 'getPersonalMemoryDir', {
-      value: () => path.join(tempRoot, 'store', 'test-repo'),
-    });
-
-    Object.defineProperty(manager, 'getSharedMemoryDir', {
-      value: () => path.join(workspaceRoot, '.nemo'),
-    });
-
-    Object.defineProperty(manager, 'getRootForScope', {
-      value: (scope: 'personal' | 'shared') =>
-        scope === 'shared'
-          ? path.join(workspaceRoot, '.nemo')
-          : path.join(tempRoot, 'store', 'test-repo'),
-    });
+    mockScopeRoots(manager, workspaceRoot, tempRoot);
   });
 
   teardown(async () => {
     await fs.rm(tempRoot, { recursive: true, force: true });
   });
 
-  test('shareToRepo moves personal file into shared store', async () => {
-    const created = await manager.createMemory('personal', 'personal', 'markdown');
-    assert.strictEqual(created.scope, 'personal');
+  test('syncToCopilotRepo copies sharedGit file into copilotRepo', async () => {
+    const created = await manager.createMemory('sharedGit', 'team-rules', 'markdown');
+    assert.strictEqual(created.scope, 'sharedGit');
 
-    const shared = await shareToRepo(manager, created);
-    assert.strictEqual(shared.scope, 'shared');
-    assert.strictEqual(shared.relativePath, 'personal.md');
+    const synced = await syncToCopilotRepo(manager, created, false);
+    assert.strictEqual(synced.scope, 'copilotRepo');
+    assert.strictEqual(synced.relativePath, 'team-rules.md');
 
-    await assert.rejects(() => fs.access(created.filePath));
-    if (!isMemoryFile(shared)) {
-      assert.fail('Expected shared memory file');
+    await fs.access(created.filePath);
+    if (!isMemoryFile(synced)) {
+      assert.fail('Expected copilot repo memory file');
     }
-    await fs.access(shared.filePath);
+    await fs.access(synced.filePath);
 
-    const personalChildren = await manager.listChildren('personal');
-    assert.strictEqual(personalChildren.length, 0);
-
-    const sharedChildren = await manager.listChildren('shared');
+    const sharedChildren = await manager.listChildren('sharedGit');
     assert.strictEqual(sharedChildren.length, 1);
+
+    const copilotChildren = await manager.listChildren('copilotRepo');
+    assert.strictEqual(copilotChildren.length, 1);
   });
 
-  test('shareToRepo fails when destination already exists', async () => {
-    const personal = await manager.createMemory('personal', 'dup', 'markdown');
-    await manager.createMemory('shared', 'dup', 'markdown');
+  test('syncToCopilotRepo fails when destination already exists', async () => {
+    const shared = await manager.createMemory('sharedGit', 'dup', 'markdown');
+    await manager.createMemory('copilotRepo', 'dup', 'markdown');
 
     await assert.rejects(
-      () => shareToRepo(manager, personal),
-      /already exists in shared memories/
+      () => syncToCopilotRepo(manager, shared, false),
+      /already exists at the destination/
     );
   });
 
-  test('unshareFromRepo moves shared folder back to personal', async () => {
-    await manager.createFolder('shared', 'backend');
-    const sharedFile = await manager.createMemory(
-      'shared',
+  test('promoteToGit copies copilotRepo folder into sharedGit', async () => {
+    await manager.createFolder('copilotRepo', 'backend');
+    const repoFile = await manager.createMemory(
+      'copilotRepo',
       'rules',
       'markdown',
       'backend'
     );
 
-    const folderNode = (await manager.listChildren('shared')).find(isMemoryFolder);
+    const folderNode = (await manager.listChildren('copilotRepo')).find(isMemoryFolder);
     assert.ok(folderNode);
 
-    const movedFolder = await unshareFromRepo(manager, folderNode);
-    assert.strictEqual(movedFolder.scope, 'personal');
-    assert.strictEqual(movedFolder.relativePath, 'backend');
+    const promoted = await promoteToGit(manager, folderNode, false);
+    assert.strictEqual(promoted.scope, 'sharedGit');
+    assert.strictEqual(promoted.relativePath, 'backend');
 
-    const personalChildren = await manager.listChildren('personal');
-    assert.ok(personalChildren.some((node) => isMemoryFolder(node) && node.name === 'backend'));
+    const sharedChildren = await manager.listChildren('sharedGit');
+    assert.ok(sharedChildren.some((node) => isMemoryFolder(node) && node.name === 'backend'));
 
-    await fs.access(path.join(manager.getRootForScope('personal') ?? '', 'backend', 'rules.md'));
-    await assert.rejects(() => fs.access(sharedFile.filePath));
+    await fs.access(
+      path.join(manager.getRootForScope('sharedGit') ?? '', 'backend', 'rules.md')
+    );
+    await fs.access(repoFile.filePath);
   });
 });

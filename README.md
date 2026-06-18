@@ -1,6 +1,6 @@
 # Nemo
 
-*Context memories for Copilot*
+*Native Copilot memory manager for VS Code*
 
 [![VS Code 1.90+](https://img.shields.io/badge/VS%20Code-1.90%2B-blue)](https://code.visualstudio.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
@@ -9,80 +9,37 @@
 
 ---
 
-Every Copilot session starts from zero. You paste the same backend rules, the same API conventions, the same "please use TypeScript strict" note — again and again.
-
-**Nemo** keeps that context in files, scoped to your repository. Shared memories live in Git for your team; personal ones stay on your machine.
-
-## Before / after
-
-**Without Nemo:** you open Chat, paste a wall of markdown, hope Copilot remembers it this turn, and repeat tomorrow.
-
-**With Nemo:** open the **Nemo** sidebar, pick a memory, click **Inject into Chat**. Copilot gets a native file attachment plus a short prompt. Done.
-
-```markdown
-<!-- nemo: team-rules.md lives in .nemo/ and syncs via git pull -->
-```
+**Nemo v2** is a sidebar to view and manage the same memory files Copilot Chat already uses — plus an optional **Shared (Git)** layer for team context in your repository.
 
 ## How it works
 
-Two zones, one sidebar:
+Three layers in one sidebar:
 
-```
-Shared (Git)     →  {workspace}/.nemo/          commit & push for the team
-Personal         →  ~/.nemo-store/{repo-id}/    never leaves your machine
-```
+| Section | Copilot virtual path | On disk | Git |
+|---------|---------------------|---------|-----|
+| **Repository memory** | `/memories/repo/` | `workspaceStorage/.../GitHub.copilot-chat/memory-tool/memories/repo/` | No |
+| **User memory** | `/memories/` | `globalStorage/GitHub.copilot-chat/memory-tool/memories/` | No |
+| **Shared (Git)** | — | `{workspace}/.nemo/` + `.nemo.json` | Yes |
 
-**Inject into Chat** tries, in order:
+Nemo reads and writes Copilot's native paths directly. Copilot Chat continues to use those files through its [memory tool](https://code.visualstudio.com/docs/copilot/agents/memory).
 
-1. `github.copilot.chat.attachFile` (native chip in Copilot Chat)
-2. Full context pasted into the chat input
-3. Clipboard fallback if Chat is unavailable
-
-Styles and sort order persist in `.nemo.json` (one manifest per zone).
-
-## Install
-
-### VS Code Marketplace
-
-```bash
-code --install-extension blaackzero.nemo-context
-```
-
-Or search **Nemo** in the Extensions view.
-
-### From source
-
-```bash
-git clone https://github.com/BlaackZero/MemoryManager.git
-cd MemoryManager
-npm install
-npm run package
-code --install-extension nemo-context-1.0.0.vsix
-```
-
-Press **F5** in VS Code to run the extension in a development host.
+**Inject into Chat** attaches any memory file via `github.copilot.chat.attachFile` with clipboard fallbacks.
 
 ## Quick start
 
-1. Open a workspace folder in VS Code.
-2. Open the **Nemo** panel in the activity bar.
-3. Under **Shared (Git)**, create memories your team will see after `git pull`.
-4. Under **Personal**, keep private notes outside the repo.
-5. Use **Share with repository** to move a personal memory into `.nemo/`.
-6. Use **Inject into Chat** to attach context in Copilot.
+1. Install **GitHub Copilot Chat** (required for native memory paths).
+2. Open a workspace and the **Nemo** panel.
+3. Create or edit memories under **Repository memory** — they appear in Copilot as `/memories/repo/...`.
+4. Use **Promote to Shared (Git)** when team canon should live in the repo.
+5. Use **Sync to Copilot repo memory** to pull `.nemo/` content into your local agent context.
 
-## Storage
+### Import context
 
-| Zone | Path |
-|------|------|
-| Shared | `{workspace}/.nemo/` (configurable) |
-| Personal | `~/.nemo-store/{repo-id}/` |
+**Import context** scans AI convention files (`AGENTS.md`, `.github/copilot-instructions.md`, Cursor rules), repo markdown, and legacy `~/.nemo-store/` files. Default destination: **Copilot repository memory**; optional **Shared (Git)** or both.
 
-**Commit `.nemo/`** to share team context. Do not add it to `.gitignore` if you want others to receive updates.
+### Migrate legacy storage
 
-Teammates without the extension can still read the `.md` and `.json` files directly.
-
-Setting `nemo.sharedPath` (default `.nemo`) changes the shared folder name.
+If you used Nemo v1 (`~/.nemo-store/`), run **Migrate legacy storage** once to move files into Copilot user/repo memory or Shared (Git).
 
 ## Copilot injection
 
@@ -92,72 +49,45 @@ Setting `nemo.sharedPath` (default `.nemo`) changes the shared folder name.
 | 2 | Insert a short prompt asking Copilot to use the attachment |
 | 3 | Fallback: paste full content or copy to clipboard |
 
-Injection markers in prompts look like:
-
-```
---- Nemo: rules.md ---
-…content…
---- End Nemo ---
-```
-
 ## Organize memories
 
-- Nested folders (`backend/`, `infra/`, …)
-- Colors and icons per folder and memory (two-step picker with live preview)
-- Rename, move, and drag-and-drop (including cross-zone share/unshare)
-- Order stored in `.nemo.json`
-
-Icon color tints the sidebar **icon only** (VS Code API). Label text keeps the default theme color.
+- **Repository / User memory:** plain `.md` files — no Nemo manifest (Copilot-native).
+- **Shared (Git):** folders, colors, icons, order in `.nemo.json`.
+- Drag-and-drop: Shared (Git) → Repository memory (sync), Copilot → Shared (Git) (promote).
 
 ## Commands
 
 | Command | What it does |
 |---------|--------------|
-| **New memory** | Create a `.md` or `.json` memory in the selected zone |
-| **New folder** | Create a folder to group memories |
-| **Edit memory** | Open the memory file in the editor |
+| **New memory / folder** | Create under the selected section |
+| **Edit memory** | Open the file in the editor |
 | **Inject into Chat** | Attach memory context in Copilot Chat |
-| **Share with repository** | Move a personal memory/folder into `.nemo/` (Git) |
-| **Move to personal** | Move a shared memory/folder to your private store |
-| **Open shared folder** | Reveal `.nemo/` in the file explorer |
-| **Rename** | Rename a memory or folder |
-| **Color and icon** | Set sidebar appearance for an item |
-| **Delete memory / folder** | Remove an item (folder deletes all contents) |
+| **Sync to Copilot repo memory** | Copy Shared (Git) → `/memories/repo/` |
+| **Promote to Shared (Git)** | Copy Copilot memory → `.nemo/` for the team |
+| **Import context** | Scan and import scattered markdown |
+| **Migrate legacy storage** | Move v1 `~/.nemo-store/` into v2 scopes |
+| **Open shared folder** | Reveal `.nemo/` in the explorer |
+| **Color and icon** | Shared (Git) only |
 | **Refresh** | Reload the tree |
 
 ## Configuration
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `nemo.sharedPath` | `.nemo` | Workspace-relative folder for shared memories |
-| `nemo.storageLocation` | `home` | Personal store: `~/.nemo-store` or extension `globalStorage` |
-| `nemo.repoIdStrategy` | `workspaceName` | How personal memories are keyed per repo |
-
-## Languages
-
-The UI follows VS Code's display language (`Configure Display Language`). Built-in translations:
-
-- **English** (default)
-- **Español**
-
-Commands, sidebar, dialogs, and Copilot prompts localize automatically.
+| `nemo.sharedPath` | `.nemo` | Workspace folder for Shared (Git) memories |
+| `nemo.storageLocation` | `home` | *Deprecated v1* — migration only |
+| `nemo.repoIdStrategy` | `workspaceName` | *Deprecated v1* — migration only |
 
 ## FAQ
 
-**Does it need a config file?**
-No. Defaults work out of the box. Optional settings live under **Nemo** in VS Code Settings.
+**How is this different from Copilot Memory (GitHub-hosted)?**
+Nemo manages the **local memory tool** files on disk. [Copilot Memory](https://docs.github.com/copilot/how-tos/use-copilot-agents/copilot-memory) is a separate, opt-in GitHub-hosted feature.
 
-**Do I have to commit `.nemo/`?**
-Only if you want shared team context via Git. Personal memories never touch the repo.
+**Do I still commit `.nemo/`?**
+Yes, when you want team-shared canon in Git. Repository/User Copilot memories stay local per machine.
 
-**What if my teammate doesn't install Nemo?**
-They can read `.nemo/*.md` and `.json` like any other project docs.
-
-**Why doesn't the whole row change color?**
-VS Code tree items only support coloring the icon glyph, not the label. Nemo applies your chosen color to the icon via `ThemeIcon`.
-
-**Why "Nemo"?**
-Short, memorable, and it stays out of your way — like context that remembers the repo for you.
+**What happened to Personal (`~/.nemo-store/`)?**
+Removed in v2. Use **User memory** or **Migrate legacy storage**.
 
 ## Development
 

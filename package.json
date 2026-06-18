@@ -2,7 +2,7 @@
   "name": "nemo-context",
   "displayName": "%extension.displayName%",
   "description": "%extension.description%",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "publisher": "blaackzero",
   "license": "MIT",
   "l10n": "./l10n",
@@ -62,14 +62,14 @@
         "icon": "$(comment-discussion)"
       },
       {
-        "command": "nemo.shareToRepo",
-        "title": "%command.shareToRepo.title%",
-        "icon": "$(repo-push)"
+        "command": "nemo.syncToCopilotRepo",
+        "title": "%command.syncToCopilotRepo.title%",
+        "icon": "$(repo-pull)"
       },
       {
-        "command": "nemo.unshareFromRepo",
-        "title": "%command.unshareFromRepo.title%",
-        "icon": "$(person)"
+        "command": "nemo.promoteToGit",
+        "title": "%command.promoteToGit.title%",
+        "icon": "$(repo-push)"
       },
       {
         "command": "nemo.openSharedFolder",
@@ -100,6 +100,16 @@
         "command": "nemo.refresh",
         "title": "%command.refresh.title%",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "nemo.importContext",
+        "title": "%command.importContext.title%",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "nemo.migrateLegacyStorage",
+        "title": "%command.migrateLegacyStorage.title%",
+        "icon": "$(arrow-right)"
       }
     ],
     "menus": {
@@ -123,63 +133,78 @@
           "command": "nemo.refresh",
           "when": "view == nemo.memories",
           "group": "navigation@4"
+        },
+        {
+          "command": "nemo.importContext",
+          "when": "view == nemo.memories && workspaceFolderCount > 0",
+          "group": "navigation@5"
+        },
+        {
+          "command": "nemo.migrateLegacyStorage",
+          "when": "view == nemo.memories && workspaceFolderCount > 0",
+          "group": "navigation@6"
         }
       ],
       "view/item/context": [
         {
           "command": "nemo.createMemory",
-          "when": "view == nemo.memories && (viewItem == sharedMemoryFolder || viewItem == personalMemoryFolder || viewItem == sharedSection || viewItem == personalSection)",
+          "when": "view == nemo.memories && (viewItem =~ /MemoryFolder$/ || viewItem =~ /Section$/)",
           "group": "1_creation@1"
         },
         {
           "command": "nemo.createFolder",
-          "when": "view == nemo.memories && (viewItem == sharedMemoryFolder || viewItem == personalMemoryFolder || viewItem == sharedSection || viewItem == personalSection)",
+          "when": "view == nemo.memories && (viewItem =~ /MemoryFolder$/ || viewItem =~ /Section$/)",
           "group": "1_creation@2"
         },
         {
           "command": "nemo.editMemory",
-          "when": "view == nemo.memories && (viewItem == sharedMemoryFile || viewItem == personalMemoryFile)",
+          "when": "view == nemo.memories && viewItem =~ /MemoryFile$/",
           "group": "inline@1"
         },
         {
           "command": "nemo.injectMemory",
-          "when": "view == nemo.memories && (viewItem == sharedMemoryFile || viewItem == personalMemoryFile)",
+          "when": "view == nemo.memories && viewItem =~ /MemoryFile$/",
           "group": "inline@2"
         },
         {
-          "command": "nemo.shareToRepo",
-          "when": "view == nemo.memories && (viewItem == personalMemoryFile || viewItem == personalMemoryFolder)",
+          "command": "nemo.syncToCopilotRepo",
+          "when": "view == nemo.memories && viewItem =~ /sharedGitMemory/",
           "group": "2_sync@1"
         },
         {
-          "command": "nemo.unshareFromRepo",
-          "when": "view == nemo.memories && (viewItem == sharedMemoryFile || viewItem == sharedMemoryFolder)",
+          "command": "nemo.promoteToGit",
+          "when": "view == nemo.memories && viewItem =~ /copilot(Repo|User)Memory/",
           "group": "2_sync@2"
         },
         {
           "command": "nemo.renameNode",
-          "when": "view == nemo.memories && (viewItem == sharedMemoryFile || viewItem == sharedMemoryFolder || viewItem == personalMemoryFile || viewItem == personalMemoryFolder)",
+          "when": "view == nemo.memories && viewItem =~ /Memory(File|Folder)$/",
           "group": "7_modification@1"
         },
         {
           "command": "nemo.setNodeStyle",
-          "when": "view == nemo.memories && (viewItem == sharedMemoryFile || viewItem == sharedMemoryFolder || viewItem == personalMemoryFile || viewItem == personalMemoryFolder)",
+          "when": "view == nemo.memories && viewItem =~ /sharedGitMemory/",
           "group": "7_modification@2"
         },
         {
           "command": "nemo.deleteMemory",
-          "when": "view == nemo.memories && (viewItem == sharedMemoryFile || viewItem == personalMemoryFile)",
+          "when": "view == nemo.memories && viewItem =~ /MemoryFile$/",
           "group": "7_modification@3"
         },
         {
           "command": "nemo.deleteFolder",
-          "when": "view == nemo.memories && (viewItem == sharedMemoryFolder || viewItem == personalMemoryFolder)",
+          "when": "view == nemo.memories && viewItem =~ /MemoryFolder$/",
           "group": "7_modification@4"
         },
         {
           "command": "nemo.openSharedFolder",
-          "when": "view == nemo.memories && viewItem == sharedSection",
+          "when": "view == nemo.memories && viewItem == sharedGitSection",
           "group": "8_explore@1"
+        },
+        {
+          "command": "nemo.importContext",
+          "when": "view == nemo.memories && viewItem == sharedGitSection",
+          "group": "2_sync@3"
         }
       ]
     },
@@ -193,7 +218,8 @@
             "globalStorage"
           ],
           "default": "home",
-          "description": "%config.storageLocation.description%"
+          "description": "%config.storageLocation.description%",
+          "deprecationMessage": "%config.storageLocation.deprecation%"
         },
         "nemo.repoIdStrategy": {
           "type": "string",
@@ -202,7 +228,8 @@
             "pathHash"
           ],
           "default": "workspaceName",
-          "description": "%config.repoIdStrategy.description%"
+          "description": "%config.repoIdStrategy.description%",
+          "deprecationMessage": "%config.repoIdStrategy.deprecation%"
         },
         "nemo.sharedPath": {
           "type": "string",

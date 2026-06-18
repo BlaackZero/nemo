@@ -9,7 +9,7 @@ import {
   buildDefaultMemoryContent,
   formatMemoryTitle,
 } from '../../src/memoryTemplates';
-import { isMemoryFolder } from '../../src/types';
+import { isMemoryFolder, MemoryScope } from '../../src/types';
 
 suite('memoryTemplates', () => {
   test('formatMemoryTitle capitalizes hyphenated names', () => {
@@ -57,6 +57,7 @@ suite('memoryTreeProvider', () => {
     await fs.mkdir(workspaceRoot, { recursive: true });
 
     manager = new MemoryManager({
+      storageUri: { fsPath: path.join(tempRoot, 'ws-storage', 'nemo-context') },
       globalStorageUri: { fsPath: path.join(tempRoot, 'global-storage') },
     } as never);
 
@@ -76,23 +77,15 @@ suite('memoryTreeProvider', () => {
       }),
     });
 
-    Object.defineProperty(manager, 'getExtensionGlobalStoragePath', {
-      value: () => path.join(tempRoot, 'global-storage'),
-    });
-
-    Object.defineProperty(manager, 'getPersonalMemoryDir', {
-      value: () => path.join(tempRoot, 'store', 'test-repo'),
-    });
-
-    Object.defineProperty(manager, 'getSharedMemoryDir', {
-      value: () => path.join(workspaceRoot, '.nemo'),
-    });
-
     Object.defineProperty(manager, 'getRootForScope', {
-      value: (scope: 'personal' | 'shared') =>
-        scope === 'shared'
-          ? path.join(workspaceRoot, '.nemo')
-          : path.join(tempRoot, 'store', 'test-repo'),
+      value: (scope: MemoryScope) => {
+        const roots: Record<MemoryScope, string> = {
+          copilotRepo: path.join(tempRoot, 'copilot-repo'),
+          copilotUser: path.join(tempRoot, 'copilot-user'),
+          sharedGit: path.join(workspaceRoot, '.nemo'),
+        };
+        return roots[scope];
+      },
     });
   });
 
@@ -100,39 +93,35 @@ suite('memoryTreeProvider', () => {
     await fs.rm(tempRoot, { recursive: true, force: true });
   });
 
-  test('getChildren at root returns only section headers', async () => {
+  test('getChildren at root returns three section headers', async () => {
     const provider = new MemoryTreeProvider(manager);
 
     const root = await provider.getChildren();
 
-    assert.strictEqual(root.length, 2);
-    assert.strictEqual(root[0]?.contextValue, 'sharedSection');
-    assert.strictEqual(root[1]?.contextValue, 'personalSection');
+    assert.strictEqual(root.length, 3);
+    assert.strictEqual(root[0]?.contextValue, 'copilotRepoSection');
+    assert.strictEqual(root[1]?.contextValue, 'copilotUserSection');
+    assert.strictEqual(root[2]?.contextValue, 'sharedGitSection');
     assert.strictEqual(
       root[0]?.collapsibleState,
       vscode.TreeItemCollapsibleState.Collapsed
     );
-    assert.strictEqual(
-      root[1]?.collapsibleState,
-      vscode.TreeItemCollapsibleState.Collapsed
-    );
   });
 
-  test('getChildren under personal section lists folder once without duplicate description', async () => {
-    await manager.createFolder('personal', 'backend');
+  test('getChildren under copilotRepo section lists folder without duplicate description', async () => {
+    await manager.createFolder('copilotRepo', 'backend');
 
     const provider = new MemoryTreeProvider(manager);
     const root = await provider.getChildren();
-    const personalSection = root.find((item) => item.contextValue === 'personalSection');
-    assert.ok(personalSection);
+    const repoSection = root.find((item) => item.contextValue === 'copilotRepoSection');
+    assert.ok(repoSection);
 
-    const personalChildren = await provider.getChildren(personalSection);
-    assert.strictEqual(personalChildren.length, 1);
+    const repoChildren = await provider.getChildren(repoSection);
+    assert.strictEqual(repoChildren.length, 1);
 
-    const folderItem = personalChildren[0];
+    const folderItem = repoChildren[0];
     assert.ok(folderItem?.node && isMemoryFolder(folderItem.node));
     assert.strictEqual(folderItem.label, 'backend');
-    assert.strictEqual(folderItem.description, undefined);
-    assert.strictEqual(folderItem.tooltip, 'backend');
+    assert.strictEqual(folderItem.description, '/memories/repo/backend');
   });
 });
