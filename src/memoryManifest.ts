@@ -5,16 +5,49 @@ export const MANIFEST_FILENAME = '.nemo.json';
 
 export const RESERVED_FILENAMES = new Set([MANIFEST_FILENAME, '.gitkeep']);
 
-export const THEME_COLORS = [
-  'charts.blue',
+export const PICKER_THEME_COLORS = [
+  'terminal.ansiBlue',
+  'terminal.ansiGreen',
+  'terminal.ansiYellow',
+  'terminal.ansiRed',
+  'terminal.ansiMagenta',
+  'terminal.ansiCyan',
   'charts.orange',
+  'charts.purple',
+] as const;
+
+/** @deprecated Legacy IDs still supported when reading manifests */
+export const LEGACY_THEME_COLORS = [
+  'charts.blue',
   'charts.green',
   'charts.red',
-  'charts.purple',
   'charts.yellow',
 ] as const;
 
-export type ThemeColorId = (typeof THEME_COLORS)[number];
+export type PickerThemeColorId = (typeof PICKER_THEME_COLORS)[number];
+
+export type ThemeColorId =
+  | PickerThemeColorId
+  | (typeof LEGACY_THEME_COLORS)[number];
+
+/** @deprecated Use PICKER_THEME_COLORS in the style picker */
+export const THEME_COLORS = PICKER_THEME_COLORS;
+
+export interface ThemeColorOption {
+  id: PickerThemeColorId;
+  labelMessage: string;
+}
+
+export const THEME_COLOR_OPTIONS: readonly ThemeColorOption[] = [
+  { id: 'terminal.ansiBlue', labelMessage: 'Blue' },
+  { id: 'terminal.ansiGreen', labelMessage: 'Green' },
+  { id: 'terminal.ansiYellow', labelMessage: 'Yellow' },
+  { id: 'terminal.ansiRed', labelMessage: 'Red' },
+  { id: 'terminal.ansiMagenta', labelMessage: 'Magenta' },
+  { id: 'terminal.ansiCyan', labelMessage: 'Cyan' },
+  { id: 'charts.orange', labelMessage: 'Orange' },
+  { id: 'charts.purple', labelMessage: 'Purple' },
+];
 
 export const THEME_ICONS = [
   'folder',

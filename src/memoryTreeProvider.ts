@@ -2,6 +2,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { i18n } from './i18n';
 import { MemoryManager, getParentRelativePath } from './memoryManager';
+import { getDefaultIconForNode, resolveNodeIcon } from './nodeStyle';
 import { shareToRepo, unshareFromRepo } from './memorySync';
 import { isMemoryFile, isMemoryFolder, MemoryNode, MemoryScope } from './types';
 
@@ -25,6 +26,7 @@ export class MemoryTreeItem extends vscode.TreeItem {
     options?: {
       description?: string;
       iconPath?: vscode.IconPath;
+      tooltip?: string;
     }
   ) {
     super(label, collapsibleState);
@@ -33,6 +35,10 @@ export class MemoryTreeItem extends vscode.TreeItem {
 
     if (options?.description) {
       this.description = options.description;
+    }
+
+    if (options?.tooltip) {
+      this.tooltip = options.tooltip;
     }
 
     if (options?.iconPath) {
@@ -132,12 +138,7 @@ export class MemoryTreeProvider
     }
 
     if (!element) {
-      return [
-        createSectionItem('shared'),
-        ...(await this.buildSectionChildren('shared')),
-        createSectionItem('personal'),
-        ...(await this.buildSectionChildren('personal')),
-      ];
+      return [createSectionItem('shared'), createSectionItem('personal')];
     }
 
     if (element.sectionScope && !element.node) {
@@ -192,26 +193,26 @@ export class MemoryTreeProvider
       if (isMemoryFolder(node)) {
         const meta = this.manager.getFolderMetaForNode(node.relativePath, manifest);
         const iconId = meta.icon ?? 'folder';
-        const color = meta.color
-          ? new vscode.ThemeColor(meta.color)
-          : undefined;
+        const displayLabel = meta.label ?? node.name;
+        const description =
+          meta.label && meta.label !== node.name ? node.name : undefined;
 
         return new MemoryTreeItem(
           node,
           undefined,
-          meta.label ?? node.name,
+          displayLabel,
           vscode.TreeItemCollapsibleState.Collapsed,
           contextValueForFolder(node.scope),
           {
-            description: node.relativePath,
-            iconPath: new vscode.ThemeIcon(iconId, color),
+            description,
+            tooltip: node.relativePath,
+            iconPath: resolveNodeIcon(iconId, meta.color, 'folder'),
           }
         );
       }
 
       const meta = this.manager.getFileMetaForNode(node.relativePath, manifest);
-      const iconId = meta.icon ?? (node.format === 'json' ? 'json' : 'markdown');
-      const color = meta.color ? new vscode.ThemeColor(meta.color) : undefined;
+      const fallbackIcon = getDefaultIconForNode(false, node.format);
 
       return new MemoryTreeItem(
         node,
@@ -220,7 +221,7 @@ export class MemoryTreeProvider
         vscode.TreeItemCollapsibleState.None,
         contextValueForFile(node.scope),
         {
-          iconPath: new vscode.ThemeIcon(iconId, color),
+          iconPath: resolveNodeIcon(meta.icon, meta.color, fallbackIcon),
         }
       );
     });
@@ -309,7 +310,7 @@ function createSectionItem(scope: MemoryScope): MemoryTreeItem {
     undefined,
     scope,
     scope === 'shared' ? i18n.tree.sharedSection() : i18n.tree.personalSection(),
-    vscode.TreeItemCollapsibleState.Expanded,
+    vscode.TreeItemCollapsibleState.Collapsed,
     scope === 'shared' ? 'sharedSection' : 'personalSection'
   );
 }

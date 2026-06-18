@@ -103,9 +103,11 @@ Injection markers in prompts look like:
 ## Organize memories
 
 - Nested folders (`backend/`, `infra/`, …)
-- Colors and icons per folder and memory
+- Colors and icons per folder and memory (two-step picker with live preview)
 - Rename, move, and drag-and-drop (including cross-zone share/unshare)
 - Order stored in `.nemo.json`
+
+Icon color tints the sidebar **icon only** (VS Code API). Label text keeps the default theme color.
 
 ## Commands
 
@@ -150,6 +152,9 @@ Only if you want shared team context via Git. Personal memories never touch the 
 
 **What if my teammate doesn't install Nemo?**
 They can read `.nemo/*.md` and `.json` like any other project docs.
+
+**Why doesn't the whole row change color?**
+VS Code tree items only support coloring the icon glyph, not the label. Nemo applies your chosen color to the icon via `ThemeIcon`.
 
 **Why "Nemo"?**
 Short, memorable, and it stays out of your way — like context that remembers the repo for you.

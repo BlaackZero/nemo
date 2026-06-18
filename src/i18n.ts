@@ -9,8 +9,8 @@ export const i18n = {
     noWorkspace: () => t('Open a workspace folder'),
     sharedSection: () => t('Shared (Git)'),
     personalSection: () => t('Personal'),
-    emptyShared: () => t('No shared memories — create or share one'),
-    emptyPersonal: () => t('No personal memories — use + to create'),
+    emptyShared: () => t('No shared memories'),
+    emptyPersonal: () => t('No personal memories — click +'),
     editMemoryTitle: () => t('Edit memory'),
   },
   command: {
@@ -19,6 +19,37 @@ export const i18n = {
     noColor: () => t('No color'),
     formatMarkdown: () => t('Markdown (.md)'),
     formatJson: () => t('JSON (.json)'),
+  },
+  style: {
+    keepCurrentColor: () => t('Keep current color'),
+    keepCurrentIcon: () => t('Keep current icon'),
+    colorLabel: (name: string) => t(name),
+    iconLabel: (iconId: string) => {
+      switch (iconId) {
+        case 'folder':
+          return t('Folder');
+        case 'server':
+          return t('Server');
+        case 'cloud':
+          return t('Cloud');
+        case 'database':
+          return t('Database');
+        case 'rocket':
+          return t('Rocket');
+        case 'shield':
+          return t('Shield');
+        case 'gear':
+          return t('Gear');
+        case 'book':
+          return t('Book');
+        case 'markdown':
+          return t('Markdown');
+        case 'json':
+          return t('JSON');
+        default:
+          return iconId;
+      }
+    },
   },
   prompt: {
     folderName: () => t('Folder name'),

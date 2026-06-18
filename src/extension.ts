@@ -1,8 +1,9 @@
 import * as vscode from 'vscode';
 import { i18n } from './i18n';
 import { injectMemoryIntoChat } from './chatIntegration';
-import { THEME_COLORS, THEME_ICONS } from './memoryManifest';
+import { getFileMeta, getFolderMeta } from './memoryManifest';
 import { MemoryManager } from './memoryManager';
+import { getDefaultIconForNode, pickNodeStyle } from './nodeStyle';
 import { shareToRepo, unshareFromRepo } from './memorySync';
 import {
   getParentFolderRelativeFromItem,
@@ -313,45 +314,41 @@ export function activate(context: vscode.ExtensionContext): void {
           return;
         }
 
-        const colorPick = await vscode.window.showQuickPick(
-          [
-            { label: i18n.command.noColor(), value: undefined },
-            ...THEME_COLORS.map((color) => ({ label: color, value: color })),
-          ],
-          { placeHolder: i18n.prompt.iconColor() }
-        );
-
-        if (colorPick === undefined) {
+        const manifest = await manager.getManifest(resolved.node.scope);
+        if (!manifest) {
           return;
         }
 
-        const iconPick = await vscode.window.showQuickPick(
-          THEME_ICONS.map((icon) => ({ label: icon, value: icon })),
-          { placeHolder: i18n.prompt.icon() }
+        const isFolder = isMemoryFolder(resolved.node);
+        const meta = isFolder
+          ? getFolderMeta(manifest, resolved.node.relativePath)
+          : getFileMeta(manifest, resolved.node.relativePath);
+        const fallbackIcon = getDefaultIconForNode(
+          isFolder,
+          isMemoryFile(resolved.node) ? resolved.node.format : undefined
         );
 
-        if (!iconPick) {
+        const style = await pickNodeStyle(
+          { icon: meta.icon, color: meta.color },
+          fallbackIcon
+        );
+
+        if (!style) {
           return;
         }
 
         try {
-          if (isMemoryFolder(resolved.node)) {
+          if (isFolder) {
             await manager.setFolderStyle(
               resolved.node.scope,
               resolved.node.relativePath,
-              {
-                color: colorPick.value,
-                icon: iconPick.value,
-              }
+              style
             );
           } else {
             await manager.setFileStyle(
               resolved.node.scope,
               resolved.node.relativePath,
-              {
-                color: colorPick.value,
-                icon: iconPick.value,
-              }
+              style
             );
           }
           refresh();

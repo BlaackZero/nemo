@@ -113,17 +113,19 @@ suite('memoryManager file operations', () => {
   });
 
   test('createMemory writes default markdown content without overwrite', async () => {
-    const created = await manager.createMemory('personal', 'reglas', 'markdown');
+    const created = await manager.createMemory('personal', 'backend-basics', 'markdown');
     const content = await fs.readFile(created.filePath, 'utf8');
 
-    assert.strictEqual(created.name, 'reglas.md');
-    assert.strictEqual(created.relativePath, 'reglas.md');
+    assert.strictEqual(created.name, 'backend-basics.md');
+    assert.strictEqual(created.relativePath, 'backend-basics.md');
     assert.strictEqual(created.kind, 'file');
     assert.strictEqual(created.scope, 'personal');
-    assert.match(content, /^# reglas/);
+    assert.match(content, /^# Backend Basics/);
+    assert.match(content, /## Overview/);
+    assert.doesNotMatch(content, /Contexto|Reglas/);
 
     await assert.rejects(
-      () => manager.createMemory('personal', 'reglas', 'markdown'),
+      () => manager.createMemory('personal', 'backend-basics', 'markdown'),
       /EEXIST|exist/
     );
   });

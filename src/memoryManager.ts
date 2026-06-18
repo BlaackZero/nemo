@@ -26,6 +26,7 @@ import {
   resolveRepoIdentityFromWorkspace,
 } from './memoryStorePaths';
 import { replaceInvalidFileNameChars } from './repoIdResolver';
+import { buildDefaultMemoryContent } from './memoryTemplates';
 import {
   MemoryFile,
   MemoryFolder,
@@ -221,20 +222,7 @@ export class MemoryManager {
   }
 
   buildDefaultContent(baseName: string, format: MemoryFormat): string {
-    if (format === 'json') {
-      return JSON.stringify(
-        {
-          title: baseName,
-          rules: [],
-          context: '',
-          prompts: [],
-        },
-        null,
-        2
-      );
-    }
-
-    return `# ${baseName}\n\n## Contexto\n\n## Reglas\n\n## Prompts\n`;
+    return buildDefaultMemoryContent(baseName, format);
   }
 
   async createFolder(
