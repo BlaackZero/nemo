@@ -78,11 +78,13 @@ export async function writeManifest(
   repoDir: string,
   manifest: MemoryManifest
 ): Promise<void> {
+  await fs.mkdir(repoDir, { recursive: true });
   const manifestPath = getManifestPath(repoDir);
   await fs.writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
 }
 
 export async function ensureManifest(repoDir: string): Promise<MemoryManifest> {
+  await fs.mkdir(repoDir, { recursive: true });
   const manifestPath = getManifestPath(repoDir);
 
   try {

@@ -5,6 +5,7 @@ import * as path from 'path';
 import {
   compareByOrder,
   createEmptyManifest,
+  ensureManifest,
   renameManifestPaths,
   updateSiblingOrder,
 } from '../../src/memoryManifest';
@@ -38,6 +39,17 @@ suite('memoryManifest', () => {
 
     assert.strictEqual(manifest.folders.infra?.order, 0);
     assert.strictEqual(manifest.folders.backend?.order, 1);
+  });
+
+  test('ensureManifest creates store directory and manifest when missing', async () => {
+    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'nemo-manifest-'));
+    const storeDir = path.join(tempRoot, '.nemo');
+
+    await ensureManifest(storeDir);
+
+    await fs.access(storeDir);
+    await fs.access(path.join(storeDir, '.nemo.json'));
+    await fs.rm(tempRoot, { recursive: true, force: true });
   });
 });
 
