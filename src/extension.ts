@@ -1,14 +1,28 @@
 import * as vscode from 'vscode';
+import { i18n } from './i18n';
 import { injectMemoryIntoChat } from './chatIntegration';
+import { THEME_COLORS, THEME_ICONS } from './memoryManifest';
 import { MemoryManager } from './memoryManager';
-import { MemoryTreeItem, MemoryTreeProvider } from './memoryTreeProvider';
+import { shareToRepo, unshareFromRepo } from './memorySync';
+import {
+  getParentFolderRelativeFromItem,
+  getScopeFromItem,
+  MemoryTreeItem,
+  MemoryTreeProvider,
+  resolveAnyNode,
+  resolveFileNode,
+  resolveFolderNode,
+  resolveTreeItem,
+} from './memoryTreeProvider';
+import { isMemoryFile, isMemoryFolder } from './types';
 
 export function activate(context: vscode.ExtensionContext): void {
   const manager = new MemoryManager(context);
   const treeProvider = new MemoryTreeProvider(manager);
 
-  const treeView = vscode.window.createTreeView('repoMemory.memories', {
+  const treeView = vscode.window.createTreeView('nemo.memories', {
     treeDataProvider: treeProvider,
+    dragAndDropController: treeProvider,
     showCollapseAll: true,
   });
 
@@ -21,107 +35,328 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.workspace.onDidChangeWorkspaceFolders(refresh),
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (
-        event.affectsConfiguration('repoMemory.storageLocation') ||
-        event.affectsConfiguration('repoMemory.repoIdStrategy')
+        event.affectsConfiguration('nemo.storageLocation') ||
+        event.affectsConfiguration('nemo.repoIdStrategy') ||
+        event.affectsConfiguration('nemo.sharedPath')
       ) {
         refresh();
       }
     }),
-    vscode.commands.registerCommand('repoMemory.refresh', refresh),
-    vscode.commands.registerCommand('repoMemory.createMemory', async () => {
-      const name = await vscode.window.showInputBox({
-        prompt: 'Nombre de la memoria (sin extensión)',
-        placeHolder: 'reglas-backend',
-        validateInput: (value) =>
-          value.trim() ? undefined : 'El nombre no puede estar vacío',
-      });
-
-      if (!name) {
+    vscode.commands.registerCommand('nemo.refresh', refresh),
+    vscode.commands.registerCommand('nemo.openSharedFolder', async () => {
+      const sharedRoot = manager.getSharedMemoryDir();
+      if (!sharedRoot) {
+        void vscode.window.showWarningMessage(i18n.warning.noWorkspace());
         return;
       }
 
-      const formatPick = await vscode.window.showQuickPick(
-        [
-          { label: 'Markdown (.md)', value: 'markdown' as const },
-          { label: 'JSON (.json)', value: 'json' as const },
-        ],
-        { placeHolder: 'Formato del archivo' }
-      );
-
-      if (!formatPick) {
-        return;
-      }
-
-      try {
-        const created = await manager.createMemory(
-          name.trim(),
-          formatPick.value
-        );
-        refresh();
-        const document = await vscode.workspace.openTextDocument(
-          created.filePath
-        );
-        await vscode.window.showTextDocument(document, { preview: false });
-      } catch (error) {
-        const message =
-          error instanceof Error ? error.message : String(error);
-        void vscode.window.showErrorMessage(
-          `No se pudo crear la memoria: ${message}`
-        );
-      }
+      await manager.ensureScopeDir('shared');
+      const uri = vscode.Uri.file(sharedRoot);
+      await vscode.commands.executeCommand('revealInExplorer', uri);
     }),
     vscode.commands.registerCommand(
-      'repoMemory.editMemory',
+      'nemo.createFolder',
       async (item?: MemoryTreeItem) => {
-        const memory = resolveMemoryItem(treeView, item);
-        if (!memory) {
-          return;
-        }
+        const scope = getScopeFromItem(item);
+        const parentRelative = getParentFolderRelativeFromItem(item);
+        const name = await vscode.window.showInputBox({
+          prompt: i18n.prompt.folderName(),
+          placeHolder: i18n.prompt.folderNamePlaceholder(),
+          validateInput: (value) =>
+            value.trim() ? undefined : i18n.prompt.nameRequired(),
+        });
 
-        const document = await vscode.workspace.openTextDocument(
-          memory.filePath
-        );
-        await vscode.window.showTextDocument(document, { preview: false });
-      }
-    ),
-    vscode.commands.registerCommand(
-      'repoMemory.injectMemory',
-      async (item?: MemoryTreeItem) => {
-        const memory = resolveMemoryItem(treeView, item);
-        if (!memory) {
-          return;
-        }
-
-        await injectMemoryIntoChat(manager, memory);
-      }
-    ),
-    vscode.commands.registerCommand(
-      'repoMemory.deleteMemory',
-      async (item?: MemoryTreeItem) => {
-        const memory = resolveMemoryItem(treeView, item);
-        if (!memory) {
-          return;
-        }
-
-        const confirm = await vscode.window.showWarningMessage(
-          `¿Eliminar "${memory.name}"?`,
-          { modal: true },
-          'Eliminar'
-        );
-
-        if (confirm !== 'Eliminar') {
+        if (!name) {
           return;
         }
 
         try {
-          await manager.deleteMemory(memory.filePath);
+          await manager.createFolder(scope, name.trim(), parentRelative);
           refresh();
         } catch (error) {
-          const message =
-            error instanceof Error ? error.message : String(error);
-          void vscode.window.showErrorMessage(
-            `No se pudo eliminar la memoria: ${message}`
+          showError(i18n.error.createFolder(), error);
+        }
+      }
+    ),
+    vscode.commands.registerCommand(
+      'nemo.createMemory',
+      async (item?: MemoryTreeItem) => {
+        const scope = getScopeFromItem(item);
+        const parentRelative = getParentFolderRelativeFromItem(item);
+        const name = await vscode.window.showInputBox({
+          prompt: i18n.prompt.memoryName(),
+          placeHolder: i18n.prompt.memoryNamePlaceholder(),
+          validateInput: (value) =>
+            value.trim() ? undefined : i18n.prompt.nameRequired(),
+        });
+
+        if (!name) {
+          return;
+        }
+
+        const formatPick = await vscode.window.showQuickPick(
+          [
+            {
+              label: i18n.command.formatMarkdown(),
+              value: 'markdown' as const,
+            },
+            { label: i18n.command.formatJson(), value: 'json' as const },
+          ],
+          { placeHolder: i18n.prompt.fileFormat() }
+        );
+
+        if (!formatPick) {
+          return;
+        }
+
+        try {
+          const created = await manager.createMemory(
+            scope,
+            name.trim(),
+            formatPick.value,
+            parentRelative
           );
+          refresh();
+          const document = await vscode.workspace.openTextDocument(
+            created.filePath
+          );
+          await vscode.window.showTextDocument(document, { preview: false });
+        } catch (error) {
+          showError(i18n.error.createMemory(), error);
+        }
+      }
+    ),
+    vscode.commands.registerCommand(
+      'nemo.editMemory',
+      async (item?: MemoryTreeItem) => {
+        const node = resolveFileNode(treeView, item);
+        if (!node || !isMemoryFile(node)) {
+          return;
+        }
+
+        const document = await vscode.workspace.openTextDocument(node.filePath);
+        await vscode.window.showTextDocument(document, { preview: false });
+      }
+    ),
+    vscode.commands.registerCommand(
+      'nemo.injectMemory',
+      async (item?: MemoryTreeItem) => {
+        const node = resolveFileNode(treeView, item);
+        if (!node || !isMemoryFile(node)) {
+          return;
+        }
+
+        await injectMemoryIntoChat(manager, node);
+      }
+    ),
+    vscode.commands.registerCommand(
+      'nemo.shareToRepo',
+      async (item?: MemoryTreeItem) => {
+        const node = resolveAnyNode(treeView, item);
+        if (!node || node.scope !== 'personal') {
+          void vscode.window.showWarningMessage(
+            i18n.warning.selectPersonalToShare()
+          );
+          return;
+        }
+
+        const moveLabel = i18n.command.move();
+        const confirm = await vscode.window.showWarningMessage(
+          i18n.warning.confirmShare(node.relativePath),
+          { modal: true },
+          moveLabel
+        );
+
+        if (confirm !== moveLabel) {
+          return;
+        }
+
+        try {
+          await shareToRepo(manager, node);
+          refresh();
+          void vscode.window.showInformationMessage(i18n.info.sharedMoved());
+        } catch (error) {
+          showError(i18n.error.shareToRepo(), error);
+        }
+      }
+    ),
+    vscode.commands.registerCommand(
+      'nemo.unshareFromRepo',
+      async (item?: MemoryTreeItem) => {
+        const node = resolveAnyNode(treeView, item);
+        if (!node || node.scope !== 'shared') {
+          void vscode.window.showWarningMessage(
+            i18n.warning.selectSharedToUnshare()
+          );
+          return;
+        }
+
+        const moveLabel = i18n.command.move();
+        const confirm = await vscode.window.showWarningMessage(
+          i18n.warning.confirmUnshare(node.relativePath),
+          { modal: true },
+          moveLabel
+        );
+
+        if (confirm !== moveLabel) {
+          return;
+        }
+
+        try {
+          await unshareFromRepo(manager, node);
+          refresh();
+          void vscode.window.showInformationMessage(i18n.info.personalMoved());
+        } catch (error) {
+          showError(i18n.error.unshareFromRepo(), error);
+        }
+      }
+    ),
+    vscode.commands.registerCommand(
+      'nemo.deleteMemory',
+      async (item?: MemoryTreeItem) => {
+        const node = resolveFileNode(treeView, item);
+        if (!node || !isMemoryFile(node)) {
+          return;
+        }
+
+        const deleteLabel = i18n.command.delete();
+        const confirm = await vscode.window.showWarningMessage(
+          i18n.warning.confirmDeleteMemory(node.name),
+          { modal: true },
+          deleteLabel
+        );
+
+        if (confirm !== deleteLabel) {
+          return;
+        }
+
+        try {
+          await manager.deleteMemory(
+            node.scope,
+            node.filePath,
+            node.relativePath
+          );
+          refresh();
+        } catch (error) {
+          showError(i18n.error.deleteMemory(), error);
+        }
+      }
+    ),
+    vscode.commands.registerCommand(
+      'nemo.deleteFolder',
+      async (item?: MemoryTreeItem) => {
+        const node = resolveFolderNode(treeView, item);
+        if (!node || !isMemoryFolder(node)) {
+          return;
+        }
+
+        const deleteLabel = i18n.command.delete();
+        const confirm = await vscode.window.showWarningMessage(
+          i18n.warning.confirmDeleteFolder(node.name),
+          { modal: true },
+          deleteLabel
+        );
+
+        if (confirm !== deleteLabel) {
+          return;
+        }
+
+        try {
+          await manager.deleteFolder(node.scope, node.relativePath);
+          refresh();
+        } catch (error) {
+          showError(i18n.error.deleteFolder(), error);
+        }
+      }
+    ),
+    vscode.commands.registerCommand(
+      'nemo.renameNode',
+      async (item?: MemoryTreeItem) => {
+        const resolved = resolveTreeItem(treeView, item);
+        if (!resolved?.node) {
+          return;
+        }
+
+        const currentName = isMemoryFolder(resolved.node)
+          ? resolved.node.name
+          : resolved.node.name.replace(/\.(md|json)$/i, '');
+
+        const newName = await vscode.window.showInputBox({
+          prompt: i18n.prompt.newName(),
+          value: currentName,
+          validateInput: (value) =>
+            value.trim() ? undefined : i18n.prompt.nameRequired(),
+        });
+
+        if (!newName || newName.trim() === currentName) {
+          return;
+        }
+
+        try {
+          await manager.renameNode(
+            resolved.node.scope,
+            resolved.node.relativePath,
+            newName.trim(),
+            isMemoryFolder(resolved.node)
+          );
+          refresh();
+        } catch (error) {
+          showError(i18n.error.rename(), error);
+        }
+      }
+    ),
+    vscode.commands.registerCommand(
+      'nemo.setNodeStyle',
+      async (item?: MemoryTreeItem) => {
+        const resolved = resolveTreeItem(treeView, item);
+        if (!resolved?.node) {
+          return;
+        }
+
+        const colorPick = await vscode.window.showQuickPick(
+          [
+            { label: i18n.command.noColor(), value: undefined },
+            ...THEME_COLORS.map((color) => ({ label: color, value: color })),
+          ],
+          { placeHolder: i18n.prompt.iconColor() }
+        );
+
+        if (colorPick === undefined) {
+          return;
+        }
+
+        const iconPick = await vscode.window.showQuickPick(
+          THEME_ICONS.map((icon) => ({ label: icon, value: icon })),
+          { placeHolder: i18n.prompt.icon() }
+        );
+
+        if (!iconPick) {
+          return;
+        }
+
+        try {
+          if (isMemoryFolder(resolved.node)) {
+            await manager.setFolderStyle(
+              resolved.node.scope,
+              resolved.node.relativePath,
+              {
+                color: colorPick.value,
+                icon: iconPick.value,
+              }
+            );
+          } else {
+            await manager.setFileStyle(
+              resolved.node.scope,
+              resolved.node.relativePath,
+              {
+                color: colorPick.value,
+                icon: iconPick.value,
+              }
+            );
+          }
+          refresh();
+        } catch (error) {
+          showError(i18n.error.setStyle(), error);
         }
       }
     )
@@ -130,15 +365,11 @@ export function activate(context: vscode.ExtensionContext): void {
   refresh();
 }
 
-function resolveMemoryItem(
-  treeView: vscode.TreeView<MemoryTreeItem>,
-  item?: MemoryTreeItem
-): MemoryTreeItem['memory'] | undefined {
-  if (item?.memory) {
-    return item.memory;
-  }
-
-  return treeView.selection[0]?.memory;
+function showError(action: string, error: unknown): void {
+  const message = error instanceof Error ? error.message : String(error);
+  void vscode.window.showErrorMessage(
+    i18n.error.actionFailed(action, message)
+  );
 }
 
 export function deactivate(): void {}

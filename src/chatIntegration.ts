@@ -1,25 +1,78 @@
 import * as vscode from 'vscode';
+import { i18n } from './i18n';
 import { MemoryManager } from './memoryManager';
 import { MemoryFile } from './types';
 
-export async function injectMemoryIntoChat(
+export const COPILOT_ATTACH_COMMAND = 'github.copilot.chat.attachFile';
+export const CHAT_OPEN_COMMAND = 'workbench.action.chat.open';
+
+export type CommandExecutor = (
+  command: string,
+  ...args: unknown[]
+) => Thenable<unknown>;
+
+export async function attachMemoryToChat(
+  fileUri: vscode.Uri,
+  executeCommand: CommandExecutor = vscode.commands.executeCommand.bind(
+    vscode.commands
+  )
+): Promise<boolean> {
+  await executeCommand(COPILOT_ATTACH_COMMAND, fileUri);
+  return true;
+}
+
+export async function openChatWithShortPrompt(
+  executeCommand: CommandExecutor = vscode.commands.executeCommand.bind(
+    vscode.commands
+  )
+): Promise<void> {
+  await executeCommand(CHAT_OPEN_COMMAND, {
+    query: i18n.chat.shortPrompt(),
+    isPartialQuery: true,
+  });
+}
+
+export async function injectMemoryContentAsPrompt(
   manager: MemoryManager,
-  memory: MemoryFile
+  memory: MemoryFile,
+  executeCommand: CommandExecutor = vscode.commands.executeCommand.bind(
+    vscode.commands
+  )
 ): Promise<void> {
   const raw = await manager.readMemory(memory.filePath);
   const content = manager.formatForChat(raw, memory.format);
   const prompt = buildInjectionPrompt(memory.name, content);
 
+  await executeCommand(CHAT_OPEN_COMMAND, {
+    query: prompt,
+    isPartialQuery: true,
+  });
+}
+
+export async function injectMemoryIntoChat(
+  manager: MemoryManager,
+  memory: MemoryFile,
+  executeCommand: CommandExecutor = vscode.commands.executeCommand.bind(
+    vscode.commands
+  )
+): Promise<void> {
+  const fileUri = vscode.Uri.file(memory.filePath);
+
   try {
-    await vscode.commands.executeCommand('workbench.action.chat.open', {
-      query: prompt,
-      isPartialQuery: true,
-    });
-    void vscode.window.showInformationMessage(
-      'Memoria insertada en Copilot Chat. Edita y envía cuando quieras.'
-    );
+    await attachMemoryToChat(fileUri, executeCommand);
+    await openChatWithShortPrompt(executeCommand);
+    void vscode.window.showInformationMessage(i18n.info.attachedToChat());
+    return;
   } catch {
-    await fallbackToClipboard(content);
+    try {
+      await injectMemoryContentAsPrompt(manager, memory, executeCommand);
+      void vscode.window.showInformationMessage(i18n.info.contentInserted());
+      return;
+    } catch {
+      const raw = await manager.readMemory(memory.filePath);
+      const content = manager.formatForChat(raw, memory.format);
+      await fallbackToClipboard(content);
+    }
   }
 }
 
@@ -28,19 +81,17 @@ export function buildInjectionPrompt(
   content: string
 ): string {
   return [
-    'Usa el siguiente contexto del repositorio como referencia:',
+    i18n.chat.injectionIntro(),
     '',
-    `--- Repo Memory: ${fileName} ---`,
+    i18n.chat.injectionStart(fileName),
     content.trim(),
-    '--- Fin Repo Memory ---',
+    i18n.chat.injectionEnd(),
     '',
-    'Responde a mi pregunta teniendo en cuenta ese contexto.',
+    i18n.chat.injectionOutro(),
   ].join('\n');
 }
 
 async function fallbackToClipboard(content: string): Promise<void> {
   await vscode.env.clipboard.writeText(content);
-  void vscode.window.showInformationMessage(
-    'Copilot Chat no disponible. Contenido copiado al portapapeles.'
-  );
+  void vscode.window.showInformationMessage(i18n.info.copiedToClipboard());
 }

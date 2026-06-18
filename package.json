@@ -1,10 +1,11 @@
 {
-  "name": "repo-memory",
-  "displayName": "Repo Memory",
-  "description": "Gestiona memorias de contexto por repositorio fuera del workspace Git",
-  "version": "0.1.0",
+  "name": "nemo-context",
+  "displayName": "%extension.displayName%",
+  "description": "%extension.description%",
+  "version": "1.0.0",
   "publisher": "blaackzero",
   "license": "MIT",
+  "l10n": "./l10n",
   "repository": {
     "type": "git",
     "url": "https://github.com/BlaackZero/MemoryManager.git"
@@ -17,105 +18,196 @@
     "AI"
   ],
   "activationEvents": [
-    "onView:repoMemory.memories"
+    "onView:nemo.memories"
   ],
   "main": "./out/src/extension.js",
   "contributes": {
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "repoMemory",
-          "title": "Repo Memory",
+          "id": "nemo",
+          "title": "%views.nemo.title%",
           "icon": "$(notebook)"
         }
       ]
     },
     "views": {
-      "repoMemory": [
+      "nemo": [
         {
-          "id": "repoMemory.memories",
-          "name": "Memorias"
+          "id": "nemo.memories",
+          "name": "%views.memories.name%",
+          "enableDragAndDrop": true
         }
       ]
     },
     "commands": [
       {
-        "command": "repoMemory.createMemory",
-        "title": "Nueva memoria",
+        "command": "nemo.createMemory",
+        "title": "%command.createMemory.title%",
         "icon": "$(add)"
       },
       {
-        "command": "repoMemory.editMemory",
-        "title": "Editar memoria",
+        "command": "nemo.createFolder",
+        "title": "%command.createFolder.title%",
+        "icon": "$(new-folder)"
+      },
+      {
+        "command": "nemo.editMemory",
+        "title": "%command.editMemory.title%",
         "icon": "$(edit)"
       },
       {
-        "command": "repoMemory.injectMemory",
-        "title": "Inyectar en Chat",
+        "command": "nemo.injectMemory",
+        "title": "%command.injectMemory.title%",
         "icon": "$(comment-discussion)"
       },
       {
-        "command": "repoMemory.deleteMemory",
-        "title": "Eliminar memoria",
+        "command": "nemo.shareToRepo",
+        "title": "%command.shareToRepo.title%",
+        "icon": "$(repo-push)"
+      },
+      {
+        "command": "nemo.unshareFromRepo",
+        "title": "%command.unshareFromRepo.title%",
+        "icon": "$(person)"
+      },
+      {
+        "command": "nemo.openSharedFolder",
+        "title": "%command.openSharedFolder.title%",
+        "icon": "$(folder-opened)"
+      },
+      {
+        "command": "nemo.deleteMemory",
+        "title": "%command.deleteMemory.title%",
         "icon": "$(trash)"
       },
       {
-        "command": "repoMemory.refresh",
-        "title": "Actualizar",
+        "command": "nemo.deleteFolder",
+        "title": "%command.deleteFolder.title%",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "nemo.renameNode",
+        "title": "%command.renameNode.title%",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "nemo.setNodeStyle",
+        "title": "%command.setNodeStyle.title%",
+        "icon": "$(symbol-color)"
+      },
+      {
+        "command": "nemo.refresh",
+        "title": "%command.refresh.title%",
         "icon": "$(refresh)"
       }
     ],
     "menus": {
       "view/title": [
         {
-          "command": "repoMemory.createMemory",
-          "when": "view == repoMemory.memories && workspaceFolderCount > 0",
+          "command": "nemo.createMemory",
+          "when": "view == nemo.memories && workspaceFolderCount > 0",
           "group": "navigation@1"
         },
         {
-          "command": "repoMemory.refresh",
-          "when": "view == repoMemory.memories",
+          "command": "nemo.createFolder",
+          "when": "view == nemo.memories && workspaceFolderCount > 0",
           "group": "navigation@2"
+        },
+        {
+          "command": "nemo.openSharedFolder",
+          "when": "view == nemo.memories && workspaceFolderCount > 0",
+          "group": "navigation@3"
+        },
+        {
+          "command": "nemo.refresh",
+          "when": "view == nemo.memories",
+          "group": "navigation@4"
         }
       ],
       "view/item/context": [
         {
-          "command": "repoMemory.editMemory",
-          "when": "view == repoMemory.memories && viewItem == memoryFile",
+          "command": "nemo.createMemory",
+          "when": "view == nemo.memories && (viewItem == sharedMemoryFolder || viewItem == personalMemoryFolder || viewItem == sharedSection || viewItem == personalSection)",
+          "group": "1_creation@1"
+        },
+        {
+          "command": "nemo.createFolder",
+          "when": "view == nemo.memories && (viewItem == sharedMemoryFolder || viewItem == personalMemoryFolder || viewItem == sharedSection || viewItem == personalSection)",
+          "group": "1_creation@2"
+        },
+        {
+          "command": "nemo.editMemory",
+          "when": "view == nemo.memories && (viewItem == sharedMemoryFile || viewItem == personalMemoryFile)",
           "group": "inline@1"
         },
         {
-          "command": "repoMemory.injectMemory",
-          "when": "view == repoMemory.memories && viewItem == memoryFile",
+          "command": "nemo.injectMemory",
+          "when": "view == nemo.memories && (viewItem == sharedMemoryFile || viewItem == personalMemoryFile)",
           "group": "inline@2"
         },
         {
-          "command": "repoMemory.deleteMemory",
-          "when": "view == repoMemory.memories && viewItem == memoryFile",
-          "group": "7_modification"
+          "command": "nemo.shareToRepo",
+          "when": "view == nemo.memories && (viewItem == personalMemoryFile || viewItem == personalMemoryFolder)",
+          "group": "2_sync@1"
+        },
+        {
+          "command": "nemo.unshareFromRepo",
+          "when": "view == nemo.memories && (viewItem == sharedMemoryFile || viewItem == sharedMemoryFolder)",
+          "group": "2_sync@2"
+        },
+        {
+          "command": "nemo.renameNode",
+          "when": "view == nemo.memories && (viewItem == sharedMemoryFile || viewItem == sharedMemoryFolder || viewItem == personalMemoryFile || viewItem == personalMemoryFolder)",
+          "group": "7_modification@1"
+        },
+        {
+          "command": "nemo.setNodeStyle",
+          "when": "view == nemo.memories && (viewItem == sharedMemoryFile || viewItem == sharedMemoryFolder || viewItem == personalMemoryFile || viewItem == personalMemoryFolder)",
+          "group": "7_modification@2"
+        },
+        {
+          "command": "nemo.deleteMemory",
+          "when": "view == nemo.memories && (viewItem == sharedMemoryFile || viewItem == personalMemoryFile)",
+          "group": "7_modification@3"
+        },
+        {
+          "command": "nemo.deleteFolder",
+          "when": "view == nemo.memories && (viewItem == sharedMemoryFolder || viewItem == personalMemoryFolder)",
+          "group": "7_modification@4"
+        },
+        {
+          "command": "nemo.openSharedFolder",
+          "when": "view == nemo.memories && viewItem == sharedSection",
+          "group": "8_explore@1"
         }
       ]
     },
     "configuration": {
-      "title": "Repo Memory",
+      "title": "%config.title%",
       "properties": {
-        "repoMemory.storageLocation": {
+        "nemo.storageLocation": {
           "type": "string",
           "enum": [
             "home",
             "globalStorage"
           ],
           "default": "home",
-          "description": "Ubicación del almacenamiento: home (~/.repo-memory-store) o globalStorage de la extensión."
+          "description": "%config.storageLocation.description%"
         },
-        "repoMemory.repoIdStrategy": {
+        "nemo.repoIdStrategy": {
           "type": "string",
           "enum": [
             "workspaceName",
             "pathHash"
           ],
           "default": "workspaceName",
-          "description": "Estrategia para identificar el repositorio: nombre del workspace o hash de la ruta."
+          "description": "%config.repoIdStrategy.description%"
+        },
+        "nemo.sharedPath": {
+          "type": "string",
+          "default": ".nemo",
+          "description": "%config.sharedPath.description%"
         }
       }
     }

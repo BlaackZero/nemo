@@ -1,0 +1,22 @@
+{
+  "extension.displayName": "Nemo",
+  "extension.description": "Memorias de contexto para Copilot",
+  "views.nemo.title": "Nemo",
+  "views.memories.name": "Memorias",
+  "command.createMemory.title": "Nueva memoria",
+  "command.createFolder.title": "Nueva carpeta",
+  "command.editMemory.title": "Editar memoria",
+  "command.injectMemory.title": "Inyectar en Chat",
+  "command.shareToRepo.title": "Compartir con el repo",
+  "command.unshareFromRepo.title": "Mover a personales",
+  "command.openSharedFolder.title": "Abrir carpeta compartida",
+  "command.deleteMemory.title": "Eliminar memoria",
+  "command.deleteFolder.title": "Eliminar carpeta",
+  "command.renameNode.title": "Renombrar",
+  "command.setNodeStyle.title": "Color e icono",
+  "command.refresh.title": "Actualizar",
+  "config.title": "Nemo",
+  "config.storageLocation.description": "Ubicación del almacenamiento personal: home (~/.nemo-store) o globalStorage de la extensión.",
+  "config.repoIdStrategy.description": "Estrategia para identificar el repositorio en memorias personales.",
+  "config.sharedPath.description": "Carpeta relativa al workspace para memorias compartidas vía Git."
+}
