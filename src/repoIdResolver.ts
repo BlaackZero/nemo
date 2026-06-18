@@ -4,11 +4,20 @@ import { RepoIdStrategy, RepoIdentity, WorkspaceInfo } from './types';
 
 const MAX_REPO_ID_LENGTH = 120;
 const PATH_HASH_LENGTH = 12;
+const INVALID_REPO_CHARS = /[<>:"/\\|?*]/;
+
+export function replaceInvalidFileNameChars(value: string): string {
+  let result = '';
+  for (const char of value) {
+    const code = char.charCodeAt(0);
+    result += code < 32 || INVALID_REPO_CHARS.test(char) ? '-' : char;
+  }
+  return result;
+}
 
 export function sanitizeRepoId(name: string): string {
   return (
-    name
-      .replace(/[<>:"/\\|?*\x00-\x1F]/g, '-')
+    replaceInvalidFileNameChars(name)
       .replace(/\s+/g, '-')
       .replace(/-+/g, '-')
       .replace(/^-|-$/g, '')

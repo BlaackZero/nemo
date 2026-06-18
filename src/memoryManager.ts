@@ -2,7 +2,7 @@ import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { resolveRepoIdentity } from './repoIdResolver';
+import { replaceInvalidFileNameChars, resolveRepoIdentity } from './repoIdResolver';
 import {
   MemoryFile,
   MemoryFormat,
@@ -166,8 +166,7 @@ export function sanitizeMemoryBaseName(name: string): string {
   const trimmed = name.trim();
   const withoutExt = trimmed.replace(/\.(md|json)$/i, '');
   return (
-    withoutExt
-      .replace(/[<>:"/\\|?*\x00-\x1F]/g, '-')
+    replaceInvalidFileNameChars(withoutExt)
       .replace(/\s+/g, '-')
       .replace(/-+/g, '-')
       .replace(/^-|-$/g, '')
