@@ -2,7 +2,7 @@
 
 *Native Copilot memory manager for VS Code*
 
-[![Beta 0.3.3](https://img.shields.io/badge/beta-0.3.3-orange)](CHANGELOG.md)
+[![Beta 0.3.4](https://img.shields.io/badge/beta-0.3.4-orange)](CHANGELOG.md)
 [![VS Code 1.90+](https://img.shields.io/badge/VS%20Code-1.90%2B-blue)](https://code.visualstudio.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![i18n EN / ES](https://img.shields.io/badge/i18n-EN%20%7C%20ES-lightgrey)](#languages)
@@ -10,7 +10,7 @@
 
 ---
 
-**Nemo beta 0.3.3** manages Copilot native memories plus team-shared Git context and a read-only view of project markdown you can attach to chat without moving files.
+**Nemo beta 0.3.4** manages Copilot native memories plus team-shared Git context and a read-only view of project markdown you can attach to chat without moving files.
 
 ## How it works
 
@@ -111,7 +111,7 @@ Styles are overlays only — Copilot memory files on disk are unchanged.
 | Project / Global memory | Yes | Yes* | Limited |
 | Inject into Chat | Yes | Yes* | Clipboard fallback |
 
-Install via **Extensions: Install from VSIX…** (`nemo-context-0.3.3.vsix`).
+Install via **Extensions: Install from VSIX…** (`nemo-context-0.3.4.vsix`).
 
 ## Configuration
 

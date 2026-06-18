@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.4] - 2026-06-18
+
+### Fixed
+
+- **Inject into Chat false positive** — use `workbench.action.chat.attachFile` first (works by URI without editor focus); remove pre-open chat delay that caused silent attach failures and spurious "Memory attached" messages when the file was not open.
+
 ## [0.3.3] - 2026-06-18
 
 ### Added

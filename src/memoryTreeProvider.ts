@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import { isCopilotChatInstalled, scopeSupportsStyles } from './copilotMemoryPaths';
 import { i18n } from './i18n';
 import { MemoryManager, getParentRelativePath } from './memoryManager';
+import { FolderMeta } from './memoryManifest';
 import { getDefaultIconForNode, resolveNodeIcon } from './nodeStyle';
 import { isMemoryFile, isMemoryFolder, MemoryNode, MemoryScope } from './types';
 
@@ -124,8 +125,8 @@ export class MemoryTreeProvider
     this._onDidChangeTreeData.fire();
   }
 
-  getTreeItem(element: MemoryTreeItem): vscode.TreeItem {
-    return element;
+  getTreeItem(element: MemoryTreeItem): Thenable<MemoryTreeItem> {
+    return this.enrichTreeItem(element);
   }
 
   getParent(element: MemoryTreeItem): vscode.ProviderResult<MemoryTreeItem> {
@@ -144,20 +145,18 @@ export class MemoryTreeProvider
 
     const parentName = path.posix.basename(parentRelative);
     const scope = element.node.scope;
+    const parentNode: MemoryNode = {
+      kind: 'folder',
+      scope,
+      name: parentName,
+      relativePath: parentRelative,
+      absolutePath:
+        this.manager.resolveAbsolutePath(scope, parentRelative) ?? '',
+    };
 
-    return new MemoryTreeItem(
-      {
-        kind: 'folder',
-        scope,
-        name: parentName,
-        relativePath: parentRelative,
-        absolutePath:
-          this.manager.resolveAbsolutePath(scope, parentRelative) ?? '',
-      },
-      undefined,
-      parentName,
-      vscode.TreeItemCollapsibleState.Collapsed,
-      contextValueForFolder(scope)
+    return this.createFolderTreeItem(
+      parentNode,
+      vscode.TreeItemCollapsibleState.Collapsed
     );
   }
 
@@ -238,89 +237,100 @@ export class MemoryTreeProvider
     return this.buildTreeItems(children);
   }
 
-  private async buildTreeItems(nodes: MemoryNode[]): Promise<MemoryTreeItem[]> {
-    if (nodes.length === 0) {
-      return [];
+  private async enrichTreeItem(
+    element: MemoryTreeItem
+  ): Promise<MemoryTreeItem> {
+    if (!element.node || !scopeSupportsStyles(element.node.scope)) {
+      return element;
     }
 
-    const scope = nodes[0]?.scope ?? 'copilotRepo';
-    const manifest = scopeSupportsStyles(scope)
-      ? await this.manager.getManifest(scope)
-      : undefined;
-    const usesStyles = scopeSupportsStyles(scope) && manifest !== undefined;
-
-    return nodes.map((node) => {
-      const virtualPath = this.manager.getVirtualPath(
-        node.scope,
-        node.relativePath
+    if (isMemoryFolder(element.node)) {
+      return this.createFolderTreeItem(
+        element.node,
+        element.collapsibleState ?? vscode.TreeItemCollapsibleState.Collapsed
       );
-      const absolutePath = isMemoryFile(node) ? node.filePath : node.absolutePath;
-      const tooltip = `${virtualPath}\n${absolutePath}`;
+    }
 
-      if (isMemoryFolder(node)) {
-        if (usesStyles && manifest) {
-          const meta = this.manager.getFolderMetaForNode(
-            node.relativePath,
-            manifest,
-            node.scope
-          );
-          const iconId = meta.icon ?? 'folder';
-          const displayLabel = meta.label ?? node.name;
-          const description =
-            meta.label && meta.label !== node.name ? node.name : virtualPath;
+    if (isMemoryFile(element.node)) {
+      return this.createFileTreeItem(element.node);
+    }
 
-          return new MemoryTreeItem(
-            node,
-            undefined,
-            displayLabel,
-            vscode.TreeItemCollapsibleState.Collapsed,
-            contextValueForFolder(node.scope),
-            {
-              description,
-              tooltip,
-              iconPath: resolveNodeIcon(iconId, meta.color, 'folder'),
-            }
-          );
+    return element;
+  }
+
+  private async createFolderTreeItem(
+    node: MemoryNode & { kind: 'folder' },
+    collapsibleState: vscode.TreeItemCollapsibleState
+  ): Promise<MemoryTreeItem> {
+    const virtualPath = this.manager.getVirtualPath(node.scope, node.relativePath);
+    const tooltip = `${virtualPath}\n${node.absolutePath}`;
+
+    if (!scopeSupportsStyles(node.scope)) {
+      return new MemoryTreeItem(
+        node,
+        undefined,
+        node.name,
+        collapsibleState,
+        contextValueForFolder(node.scope),
+        {
+          description: virtualPath,
+          tooltip,
+          iconPath: new vscode.ThemeIcon('folder'),
         }
+      );
+    }
 
-        return new MemoryTreeItem(
-          node,
-          undefined,
-          node.name,
-          vscode.TreeItemCollapsibleState.Collapsed,
-          contextValueForFolder(node.scope),
-          {
-            description: virtualPath,
-            tooltip,
-            iconPath: new vscode.ThemeIcon('folder'),
-          }
-        );
+    const manifest = await this.manager.getManifest(node.scope);
+    if (!manifest) {
+      return new MemoryTreeItem(
+        node,
+        undefined,
+        node.name,
+        collapsibleState,
+        contextValueForFolder(node.scope),
+        {
+          description: virtualPath,
+          tooltip,
+          iconPath: new vscode.ThemeIcon('folder'),
+        }
+      );
+    }
+
+    const meta = this.manager.getFolderMetaForNode(
+      node.relativePath,
+      manifest,
+      node.scope
+    );
+    const displayLabel = meta.label ?? node.name;
+    const description =
+      meta.label && meta.label !== node.name ? node.name : virtualPath;
+
+    return new MemoryTreeItem(
+      node,
+      undefined,
+      displayLabel,
+      collapsibleState,
+      contextValueForFolder(node.scope),
+      {
+        description,
+        tooltip,
+        iconPath: resolveNodeIcon(
+          folderIconId(meta, collapsibleState),
+          meta.color,
+          'folder'
+        ),
       }
+    );
+  }
 
-      if (usesStyles && manifest) {
-        const meta = this.manager.getFileMetaForNode(
-          node.relativePath,
-          manifest,
-          node.scope
-        );
-        const fallbackIcon = getDefaultIconForNode(false, node.format);
+  private async createFileTreeItem(
+    node: MemoryNode & { kind: 'file' }
+  ): Promise<MemoryTreeItem> {
+    const virtualPath = this.manager.getVirtualPath(node.scope, node.relativePath);
+    const tooltip = `${virtualPath}\n${node.filePath}`;
+    const fallbackIcon = getDefaultIconForNode(false, node.format);
 
-        return new MemoryTreeItem(
-          node,
-          undefined,
-          node.name,
-          vscode.TreeItemCollapsibleState.None,
-          contextValueForFile(node.scope),
-          {
-            description: virtualPath,
-            tooltip,
-            iconPath: resolveNodeIcon(meta.icon, meta.color, fallbackIcon),
-          }
-        );
-      }
-
-      const fallbackIcon = getDefaultIconForNode(false, node.format);
-
+    if (!scopeSupportsStyles(node.scope)) {
       return new MemoryTreeItem(
         node,
         undefined,
@@ -333,7 +343,63 @@ export class MemoryTreeProvider
           iconPath: new vscode.ThemeIcon(fallbackIcon),
         }
       );
-    });
+    }
+
+    const manifest = await this.manager.getManifest(node.scope);
+    if (!manifest) {
+      return new MemoryTreeItem(
+        node,
+        undefined,
+        node.name,
+        vscode.TreeItemCollapsibleState.None,
+        contextValueForFile(node.scope),
+        {
+          description: virtualPath,
+          tooltip,
+          iconPath: new vscode.ThemeIcon(fallbackIcon),
+        }
+      );
+    }
+
+    const meta = this.manager.getFileMetaForNode(
+      node.relativePath,
+      manifest,
+      node.scope
+    );
+
+    return new MemoryTreeItem(
+      node,
+      undefined,
+      node.name,
+      vscode.TreeItemCollapsibleState.None,
+      contextValueForFile(node.scope),
+      {
+        description: virtualPath,
+        tooltip,
+        iconPath: resolveNodeIcon(meta.icon, meta.color, fallbackIcon),
+      }
+    );
+  }
+
+  private async buildTreeItems(nodes: MemoryNode[]): Promise<MemoryTreeItem[]> {
+    if (nodes.length === 0) {
+      return [];
+    }
+
+    const items: MemoryTreeItem[] = [];
+    for (const node of nodes) {
+      if (isMemoryFolder(node)) {
+        items.push(
+          await this.createFolderTreeItem(
+            node,
+            vscode.TreeItemCollapsibleState.Collapsed
+          )
+        );
+      } else {
+        items.push(await this.createFileTreeItem(node));
+      }
+    }
+    return items;
   }
 
   async handleDrag(
@@ -439,6 +505,21 @@ export class MemoryTreeProvider
 
     this.refresh();
   }
+}
+
+function folderIconId(
+  meta: FolderMeta,
+  collapsibleState: vscode.TreeItemCollapsibleState
+): string | undefined {
+  const icon = meta.icon;
+  if (
+    collapsibleState === vscode.TreeItemCollapsibleState.Expanded &&
+    (!icon || icon === 'folder')
+  ) {
+    return 'folder-opened';
+  }
+
+  return icon;
 }
 
 function emptyMessageForScope(scope: MemoryScope): string {

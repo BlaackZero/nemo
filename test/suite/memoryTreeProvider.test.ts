@@ -145,4 +145,85 @@ suite('memoryTreeProvider', () => {
     assert.strictEqual(folderItem.label, 'API Backend');
     assert.strictEqual(folderItem.description, 'backend');
   });
+
+  test('getTreeItem keeps folder style when folder contains memories', async () => {
+    await manager.createFolder('copilotRepo', 'backend');
+    await manager.createMemory('copilotRepo', 'rules', 'markdown', 'backend');
+    await manager.setFolderStyle('copilotRepo', 'backend', {
+      label: 'API Backend',
+      icon: 'server',
+      color: 'terminal.ansiGreen',
+    });
+
+    const provider = new MemoryTreeProvider(manager);
+    const root = await provider.getChildren();
+    const repoSection = root.find((item) => item.contextValue === 'copilotRepoSection');
+    assert.ok(repoSection);
+
+    const repoChildren = await provider.getChildren(repoSection);
+    const folderItem = repoChildren[0];
+    assert.ok(folderItem?.node && isMemoryFolder(folderItem.node));
+
+    folderItem.collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
+    const enriched = await provider.getTreeItem(folderItem);
+    assert.ok(enriched);
+
+    assert.strictEqual(enriched.label, 'API Backend');
+    const icon = enriched.iconPath as vscode.ThemeIcon;
+    assert.strictEqual(icon.id, 'server');
+    assert.ok(icon.color);
+  });
+
+  test('getParent returns styled folder for nested memory', async () => {
+    await manager.createFolder('copilotRepo', 'backend');
+    await manager.createMemory('copilotRepo', 'rules', 'markdown', 'backend');
+    await manager.setFolderStyle('copilotRepo', 'backend', {
+      label: 'API Backend',
+      icon: 'server',
+      color: 'terminal.ansiGreen',
+    });
+
+    const provider = new MemoryTreeProvider(manager);
+    const root = await provider.getChildren();
+    const repoSection = root.find((item) => item.contextValue === 'copilotRepoSection');
+    assert.ok(repoSection);
+
+    const folderItem = (await provider.getChildren(repoSection))[0];
+    assert.ok(folderItem?.node && isMemoryFolder(folderItem.node));
+
+    const fileItems = await provider.getChildren(folderItem);
+    assert.strictEqual(fileItems.length, 1);
+
+    const parent = await provider.getParent(fileItems[0]!);
+    assert.ok(parent?.node && isMemoryFolder(parent.node));
+
+    assert.strictEqual(parent.label, 'API Backend');
+    const icon = parent.iconPath as vscode.ThemeIcon;
+    assert.strictEqual(icon.id, 'server');
+    assert.ok(icon.color);
+  });
+
+  test('getTreeItem uses folder-opened with color when expanded and icon is default', async () => {
+    await manager.createFolder('copilotRepo', 'backend');
+    await manager.createMemory('copilotRepo', 'rules', 'markdown', 'backend');
+    await manager.setFolderStyle('copilotRepo', 'backend', {
+      color: 'terminal.ansiGreen',
+    });
+
+    const provider = new MemoryTreeProvider(manager);
+    const root = await provider.getChildren();
+    const repoSection = root.find((item) => item.contextValue === 'copilotRepoSection');
+    assert.ok(repoSection);
+
+    const folderItem = (await provider.getChildren(repoSection))[0];
+    assert.ok(folderItem);
+
+    folderItem.collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
+    const enriched = await provider.getTreeItem(folderItem);
+    assert.ok(enriched);
+
+    const icon = enriched.iconPath as vscode.ThemeIcon;
+    assert.strictEqual(icon.id, 'folder-opened');
+    assert.ok(icon.color);
+  });
 });

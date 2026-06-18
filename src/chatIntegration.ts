@@ -70,7 +70,11 @@ export async function attachFilesToChat(
     return false;
   }
 
-  await ensureChatVisible(executeCommand);
+  if (
+    await tryExecuteCommand(executeCommand, WORKBENCH_ATTACH_FILE, ...fileUris)
+  ) {
+    return true;
+  }
 
   if (
     await tryExecuteCommand(executeCommand, COPILOT_ATTACH_COMMAND, ...fileUris)
@@ -78,17 +82,11 @@ export async function attachFilesToChat(
     return true;
   }
 
-  if (
-    await tryExecuteCommand(executeCommand, WORKBENCH_ATTACH_FILE, ...fileUris)
-  ) {
-    return true;
-  }
-
   for (const uri of fileUris) {
-    if (await tryExecuteCommand(executeCommand, COPILOT_ATTACH_COMMAND, uri)) {
+    if (await tryExecuteCommand(executeCommand, WORKBENCH_ATTACH_FILE, uri)) {
       continue;
     }
-    if (await tryExecuteCommand(executeCommand, WORKBENCH_ATTACH_FILE, uri)) {
+    if (await tryExecuteCommand(executeCommand, COPILOT_ATTACH_COMMAND, uri)) {
       continue;
     }
     return false;
@@ -112,7 +110,6 @@ export async function attachFolderToChat(
     vscode.commands
   )
 ): Promise<boolean> {
-  await ensureChatVisible(executeCommand);
   return tryExecuteCommand(executeCommand, WORKBENCH_ATTACH_FOLDER, folderUri);
 }
 

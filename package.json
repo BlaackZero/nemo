@@ -2,7 +2,7 @@
   "name": "nemo-context",
   "displayName": "%extension.displayName%",
   "description": "%extension.description%",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "publisher": "blaackzero",
   "license": "MIT",
   "l10n": "./l10n",

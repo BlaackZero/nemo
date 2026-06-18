@@ -29,7 +29,7 @@ suite('chatIntegration', () => {
     assert.match(prompt, /--- End Nemo ---/);
   });
 
-  test('attachMemoryToChat opens chat before copilot attach', async () => {
+  test('attachMemoryToChat calls workbench attach first', async () => {
     const calls: string[] = [];
     const executeCommand = async (command: string): Promise<void> => {
       calls.push(command);
@@ -39,15 +39,15 @@ suite('chatIntegration', () => {
     const attached = await attachMemoryToChat(uri, executeCommand);
 
     assert.strictEqual(attached, true);
-    assert.strictEqual(calls[0], CHAT_OPEN_COMMAND);
-    assert.strictEqual(calls[1], COPILOT_ATTACH_COMMAND);
+    assert.strictEqual(calls[0], WORKBENCH_ATTACH_FILE);
+    assert.ok(!calls.includes(CHAT_OPEN_COMMAND));
   });
 
-  test('attachMemoryToChat falls back to workbench attach command', async () => {
+  test('attachMemoryToChat falls back to copilot attach command', async () => {
     const calls: string[] = [];
     const executeCommand = async (command: string): Promise<void> => {
-      if (command === COPILOT_ATTACH_COMMAND) {
-        throw new Error('copilot attach unavailable');
+      if (command === WORKBENCH_ATTACH_FILE) {
+        throw new Error('workbench attach unavailable');
       }
       calls.push(command);
     };
@@ -56,8 +56,8 @@ suite('chatIntegration', () => {
     const attached = await attachMemoryToChat(uri, executeCommand);
 
     assert.strictEqual(attached, true);
-    assert.strictEqual(calls[0], CHAT_OPEN_COMMAND);
-    assert.strictEqual(calls[1], WORKBENCH_ATTACH_FILE);
+    assert.strictEqual(calls[0], COPILOT_ATTACH_COMMAND);
+    assert.ok(!calls.includes(CHAT_OPEN_COMMAND));
   });
 
   test('attachMemoryToChat returns false when both attach commands fail', async () => {
@@ -137,9 +137,8 @@ suite('chatIntegration', () => {
     try {
       await injectMemoryIntoChat(manager, memory, executeCommand);
 
-      assert.strictEqual(calls[0], CHAT_OPEN_COMMAND);
-      assert.strictEqual(calls[1], COPILOT_ATTACH_COMMAND);
-      assert.ok(!calls.some((command, index) => index > 1 && command === CHAT_OPEN_COMMAND));
+      assert.strictEqual(calls[0], WORKBENCH_ATTACH_FILE);
+      assert.ok(!calls.includes(CHAT_OPEN_COMMAND));
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
     }
@@ -232,9 +231,8 @@ suite('chatIntegration', () => {
     try {
       await injectMemoryIntoChat(manager, memory, executeCommand);
 
-      assert.strictEqual(calls[0], CHAT_OPEN_COMMAND);
-      assert.strictEqual(calls[1], COPILOT_ATTACH_COMMAND);
-      assert.strictEqual(calls.length, 2);
+      assert.strictEqual(calls[0], WORKBENCH_ATTACH_FILE);
+      assert.strictEqual(calls.length, 1);
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
     }
@@ -283,9 +281,8 @@ suite('chatIntegration', () => {
     try {
       await injectFolderIntoChat(manager, folder, executeCommand);
 
-      assert.strictEqual(calls[0], CHAT_OPEN_COMMAND);
-      assert.strictEqual(calls[1], WORKBENCH_ATTACH_FOLDER);
-      assert.strictEqual(calls.length, 2);
+      assert.strictEqual(calls[0], WORKBENCH_ATTACH_FOLDER);
+      assert.strictEqual(calls.length, 1);
     } finally {
       await fs.rm(folderPath, { recursive: true, force: true });
     }
@@ -332,14 +329,13 @@ suite('chatIntegration', () => {
     try {
       await injectFolderIntoChat(manager, folder, executeCommand);
 
-      assert.strictEqual(calls[0]?.[0], CHAT_OPEN_COMMAND);
-      assert.strictEqual(calls[1]?.[0], COPILOT_ATTACH_COMMAND);
+      assert.strictEqual(calls[0]?.[0], WORKBENCH_ATTACH_FILE);
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
     }
   });
 
-  test('attachFilesToChat opens chat and uses copilot attach first', async () => {
+  test('attachFilesToChat uses workbench attach first', async () => {
     const calls: unknown[][] = [];
     const executeCommand = async (
       command: string,
@@ -355,8 +351,8 @@ suite('chatIntegration', () => {
     const attached = await attachFilesToChat(uris, executeCommand);
 
     assert.strictEqual(attached, true);
-    assert.strictEqual(calls[0]?.[0], CHAT_OPEN_COMMAND);
-    assert.strictEqual(calls[1]?.[0], COPILOT_ATTACH_COMMAND);
-    assert.strictEqual(calls[1]?.length, 3);
+    assert.strictEqual(calls[0]?.[0], WORKBENCH_ATTACH_FILE);
+    assert.strictEqual(calls[0]?.length, 3);
+    assert.ok(calls.every((call) => call[0] !== CHAT_OPEN_COMMAND));
   });
 });
