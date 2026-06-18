@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import {
   isReservedCopilotUserEntry,
+  scopeSupportsStyles,
   scopeUsesManifest,
   virtualPathForScope,
 } from './copilotMemoryPaths';
@@ -10,26 +11,41 @@ import { i18n } from './i18n';
 import {
   compareByOrder,
   createEmptyManifest,
+  ensureCopilotRepoOverlay,
+  ensureExternalOverlay,
+  ensureGlobalStyleManifest,
   ensureManifest,
   FileMeta,
   FolderMeta,
+  getCopilotRepoFileMeta,
+  getCopilotRepoFolderMeta,
+  getCopilotUserFileMeta,
+  getCopilotUserFolderMeta,
+  getExternalFileMeta,
+  getExternalFolderMeta,
   getFileMeta,
   getFolderMeta,
+  GlobalStyleManifest,
   MemoryManifest,
+  mergeFileMeta,
+  mergeFolderMeta,
+  readGlobalStyleManifest,
   readManifest,
   removeManifestPaths,
+  removeOverlayPaths,
   renameManifestPaths,
+  renameOverlayPaths,
   RESERVED_FILENAMES,
   transferManifestPaths,
   updateSiblingOrder,
+  writeGlobalStyleManifest,
   writeManifest,
 } from './memoryManifest';
+import { scanExternalMarkdownPaths } from './memoryImportScan';
 import {
-  getLegacyPersonalRoot,
   getRootForScope,
   getSharedGitRoot,
   readConfigFromWorkspace,
-  resolveRepoIdentityFromWorkspace,
 } from './memoryStorePaths';
 import { replaceInvalidFileNameChars } from './repoIdResolver';
 import { buildDefaultMemoryContent } from './memoryTemplates';
@@ -40,10 +56,13 @@ import {
   MemoryManagerConfig,
   MemoryNode,
   MemoryScope,
-  RepoIdentity,
 } from './types';
 
+export type StyleManifest = MemoryManifest | GlobalStyleManifest;
+
 export class MemoryManager {
+  private externalPathsCache: string[] | null = null;
+
   constructor(private readonly context: vscode.ExtensionContext) {}
 
   getExtensionContext(): vscode.ExtensionContext {
@@ -58,25 +77,16 @@ export class MemoryManager {
     return this.context.globalStorageUri.fsPath;
   }
 
-  getCurrentRepoIdentity(): RepoIdentity | undefined {
-    return resolveRepoIdentityFromWorkspace(this.getConfig().repoIdStrategy);
-  }
-
-  /** @deprecated v1 — use getLegacyPersonalDir for migration only */
-  getPersonalMemoryDir(): string | undefined {
-    return getLegacyPersonalRoot(this);
-  }
-
-  getLegacyPersonalDir(): string | undefined {
-    return getLegacyPersonalRoot(this);
-  }
-
   getSharedMemoryDir(): string | undefined {
     return getSharedGitRoot(this);
   }
 
   getSharedGitDir(): string | undefined {
     return getSharedGitRoot(this);
+  }
+
+  invalidateExternalCache(): void {
+    this.externalPathsCache = null;
   }
 
   getRootForScope(scope: MemoryScope): string | undefined {
@@ -109,6 +119,15 @@ export class MemoryManager {
   }
 
   async ensureScopeDir(scope: MemoryScope): Promise<string> {
+    if (scope === 'external') {
+      const sharedRoot = this.getSharedGitDir();
+      if (!sharedRoot) {
+        throw new Error(i18n.error.noWorkspace());
+      }
+      await ensureManifest(sharedRoot);
+      return sharedRoot;
+    }
+
     const dir = this.getRootForScope(scope);
     if (!dir) {
       throw new Error(i18n.error.noWorkspace());
@@ -133,12 +152,27 @@ export class MemoryManager {
     return name.endsWith('.json') ? 'json' : 'markdown';
   }
 
-  async getManifest(scope: MemoryScope): Promise<MemoryManifest | undefined> {
+  async getManifest(scope: MemoryScope): Promise<StyleManifest | undefined> {
+    if (scope === 'copilotUser') {
+      return ensureGlobalStyleManifest(this.getExtensionGlobalStoragePath());
+    }
+
+    if (scope === 'copilotRepo') {
+      const sharedRoot = this.getRootForScope('sharedGit');
+      if (!sharedRoot) {
+        return undefined;
+      }
+      return ensureManifest(sharedRoot);
+    }
+
     if (!scopeUsesManifest(scope)) {
       return undefined;
     }
 
-    const rootDir = this.getRootForScope(scope);
+    const rootDir =
+      scope === 'external'
+        ? this.getRootForScope('sharedGit')
+        : this.getRootForScope(scope);
     if (!rootDir) {
       return undefined;
     }
@@ -148,20 +182,66 @@ export class MemoryManager {
 
   async saveManifest(
     scope: MemoryScope,
-    manifest: MemoryManifest
+    manifest: StyleManifest
   ): Promise<void> {
-    if (!scopeUsesManifest(scope)) {
+    if (scope === 'copilotUser') {
+      await writeGlobalStyleManifest(
+        this.getExtensionGlobalStoragePath(),
+        manifest as GlobalStyleManifest
+      );
       return;
     }
 
-    const rootDir = await this.ensureScopeDir(scope);
-    await writeManifest(rootDir, manifest);
+    if (scope === 'copilotRepo' || scopeUsesManifest(scope)) {
+      const rootDir = await this.ensureScopeDir(
+        scope === 'external' || scope === 'copilotRepo' ? 'sharedGit' : scope
+      );
+      await writeManifest(rootDir, manifest as MemoryManifest);
+    }
+  }
+
+  getFolderMetaForNode(
+    relativePath: string,
+    manifest: StyleManifest,
+    scope: MemoryScope
+  ): FolderMeta {
+    if (scope === 'copilotUser') {
+      return getCopilotUserFolderMeta(manifest as GlobalStyleManifest, relativePath);
+    }
+    if (scope === 'copilotRepo') {
+      return getCopilotRepoFolderMeta(manifest as MemoryManifest, relativePath);
+    }
+    if (scope === 'external') {
+      return getExternalFolderMeta(manifest as MemoryManifest, relativePath);
+    }
+    return getFolderMeta(manifest as MemoryManifest, relativePath);
+  }
+
+  getFileMetaForNode(
+    relativePath: string,
+    manifest: StyleManifest,
+    scope: MemoryScope
+  ): FileMeta {
+    if (scope === 'copilotUser') {
+      return getCopilotUserFileMeta(manifest as GlobalStyleManifest, relativePath);
+    }
+    if (scope === 'copilotRepo') {
+      return getCopilotRepoFileMeta(manifest as MemoryManifest, relativePath);
+    }
+    if (scope === 'external') {
+      return getExternalFileMeta(manifest as MemoryManifest, relativePath);
+    }
+    return getFileMeta(manifest as MemoryManifest, relativePath);
   }
 
   async listChildren(
     scope: MemoryScope,
     parentRelativePath?: string
   ): Promise<MemoryNode[]> {
+    if (scope === 'external') {
+      return this.listExternalChildren(parentRelativePath);
+    }
+
     const absoluteDir = this.resolveAbsolutePath(scope, parentRelativePath);
     const rootDir = this.getRootForScope(scope);
     if (!absoluteDir || !rootDir) {
@@ -247,16 +327,114 @@ export class MemoryManager {
     }
   }
 
+  private async getExternalPaths(): Promise<string[]> {
+    if (this.externalPathsCache === null) {
+      this.externalPathsCache = await scanExternalMarkdownPaths(this);
+    }
+    return this.externalPathsCache;
+  }
+
+  private async listExternalChildren(
+    parentRelativePath?: string
+  ): Promise<MemoryNode[]> {
+    const workspaceRoot = this.getRootForScope('external');
+    if (!workspaceRoot) {
+      return [];
+    }
+
+    const parentRelative = this.normalizeRelativePath(parentRelativePath);
+    const paths = await this.getExternalPaths();
+    const sharedRoot = this.getSharedGitDir();
+    const manifest = sharedRoot ? await ensureManifest(sharedRoot) : createEmptyManifest();
+
+    const folderNames = new Set<string>();
+    const files: MemoryFile[] = [];
+
+    for (const workspaceRelative of paths) {
+      if (parentRelative) {
+        if (
+          workspaceRelative !== parentRelative &&
+          !workspaceRelative.startsWith(`${parentRelative}/`)
+        ) {
+          continue;
+        }
+
+        const remainder =
+          workspaceRelative === parentRelative
+            ? ''
+            : workspaceRelative.slice(parentRelative.length + 1);
+        if (!remainder) {
+          continue;
+        }
+
+        const slashIndex = remainder.indexOf('/');
+        if (slashIndex === -1) {
+          const filePath = path.join(workspaceRoot, workspaceRelative);
+          files.push({
+            kind: 'file',
+            scope: 'external',
+            name: remainder,
+            relativePath: workspaceRelative,
+            filePath,
+            format: this.getFormatFromFileName(remainder),
+          });
+        } else {
+          folderNames.add(remainder.slice(0, slashIndex));
+        }
+        continue;
+      }
+
+      const slashIndex = workspaceRelative.indexOf('/');
+      if (slashIndex === -1) {
+        const filePath = path.join(workspaceRoot, workspaceRelative);
+        files.push({
+          kind: 'file',
+          scope: 'external',
+          name: workspaceRelative,
+          relativePath: workspaceRelative,
+          filePath,
+          format: this.getFormatFromFileName(workspaceRelative),
+        });
+      } else {
+        folderNames.add(workspaceRelative.slice(0, slashIndex));
+      }
+    }
+
+    const folders: MemoryFolder[] = [...folderNames].map((name) => {
+      const relativePath = parentRelative
+        ? `${parentRelative}/${name}`
+        : name;
+      return {
+        kind: 'folder',
+        scope: 'external',
+        name,
+        relativePath,
+        absolutePath: path.join(workspaceRoot, relativePath),
+      };
+    });
+
+    if (scopeUsesManifest('external')) {
+      folders.sort((a, b) => {
+        const metaA = getExternalFolderMeta(manifest, a.relativePath);
+        const metaB = getExternalFolderMeta(manifest, b.relativePath);
+        return compareByOrder(metaA.order, metaB.order, a.name, b.name);
+      });
+
+      files.sort((a, b) => {
+        const metaA = getExternalFileMeta(manifest, a.relativePath);
+        const metaB = getExternalFileMeta(manifest, b.relativePath);
+        return compareByOrder(metaA.order, metaB.order, a.name, b.name);
+      });
+    } else {
+      folders.sort((a, b) => a.name.localeCompare(b.name));
+      files.sort((a, b) => a.name.localeCompare(b.name));
+    }
+
+    return [...folders, ...files];
+  }
+
   getVirtualPath(scope: MemoryScope, relativePath: string): string {
     return virtualPathForScope(scope, relativePath);
-  }
-
-  getFolderMetaForNode(relativePath: string, manifest: MemoryManifest): FolderMeta {
-    return getFolderMeta(manifest, relativePath);
-  }
-
-  getFileMetaForNode(relativePath: string, manifest: MemoryManifest): FileMeta {
-    return getFileMeta(manifest, relativePath);
   }
 
   async readMemory(filePath: string): Promise<string> {
@@ -272,6 +450,7 @@ export class MemoryManager {
     folderName: string,
     parentRelativePath?: string
   ): Promise<MemoryFolder> {
+    assertMutableScope(scope);
     const rootDir = await this.ensureScopeDir(scope);
     const safeName = sanitizeMemoryBaseName(folderName);
     const parentRelative = this.normalizeRelativePath(parentRelativePath);
@@ -306,6 +485,7 @@ export class MemoryManager {
     format: MemoryFormat,
     parentRelativePath?: string
   ): Promise<MemoryFile> {
+    assertMutableScope(scope);
     const effectiveFormat =
       scope === 'sharedGit' ? format : ('markdown' as MemoryFormat);
     const rootDir = await this.ensureScopeDir(scope);
@@ -348,6 +528,7 @@ export class MemoryManager {
     filePath: string,
     relativePath?: string
   ): Promise<void> {
+    assertMutableScope(scope);
     const rootDir = this.getRootForScope(scope);
     await fs.unlink(filePath);
 
@@ -355,10 +536,13 @@ export class MemoryManager {
       const manifest = await readManifest(rootDir);
       removeManifestPaths(manifest, relativePath, false);
       await writeManifest(rootDir, manifest);
+    } else if (relativePath) {
+      await this.syncCopilotStyleOnRemove(scope, relativePath, false);
     }
   }
 
   async deleteFolder(scope: MemoryScope, relativePath: string): Promise<void> {
+    assertMutableScope(scope);
     const rootDir = await this.ensureScopeDir(scope);
     const normalized = this.normalizeRelativePath(relativePath);
     const absolutePath = path.join(rootDir, normalized);
@@ -369,6 +553,8 @@ export class MemoryManager {
       const manifest = await readManifest(rootDir);
       removeManifestPaths(manifest, normalized, true);
       await writeManifest(rootDir, manifest);
+    } else {
+      await this.syncCopilotStyleOnRemove(scope, normalized, true);
     }
   }
 
@@ -378,6 +564,7 @@ export class MemoryManager {
     newName: string,
     isFolder: boolean
   ): Promise<MemoryNode> {
+    assertMutableScope(scope);
     const rootDir = await this.ensureScopeDir(scope);
     const from = this.normalizeRelativePath(fromRelative);
     const safeName = sanitizeMemoryBaseName(newName);
@@ -400,6 +587,8 @@ export class MemoryManager {
       const manifest = await readManifest(rootDir);
       renameManifestPaths(manifest, from, toRelative, isFolder);
       await writeManifest(rootDir, manifest);
+    } else {
+      await this.syncCopilotStyleOnRename(scope, from, toRelative, isFolder);
     }
 
     if (isFolder) {
@@ -434,6 +623,7 @@ export class MemoryManager {
     targetFolderRelative: string | undefined,
     isFolder: boolean
   ): Promise<MemoryNode> {
+    assertMutableScope(scope);
     const rootDir = await this.ensureScopeDir(scope);
     const from = this.normalizeRelativePath(fromRelative);
     const targetFolder = this.normalizeRelativePath(targetFolderRelative);
@@ -458,6 +648,8 @@ export class MemoryManager {
       const manifest = await readManifest(rootDir);
       renameManifestPaths(manifest, from, toRelative, isFolder);
       await writeManifest(rootDir, manifest);
+    } else {
+      await this.syncCopilotStyleOnRename(scope, from, toRelative, isFolder);
     }
 
     if (isFolder) {
@@ -506,16 +698,45 @@ export class MemoryManager {
     relativePath: string,
     style: Partial<FolderMeta>
   ): Promise<void> {
-    if (!scopeUsesManifest(scope)) {
-      throw new Error(i18n.error.stylesSharedGitOnly());
+    if (!scopeSupportsStyles(scope)) {
+      throw new Error(i18n.error.stylesUnsupportedScope());
     }
 
-    const rootDir = await this.ensureScopeDir(scope);
+    if (scope === 'copilotUser') {
+      const globalDir = this.getExtensionGlobalStoragePath();
+      const manifest = await ensureGlobalStyleManifest(globalDir);
+      manifest.folders[relativePath] = mergeFolderMeta(
+        manifest.folders[relativePath] ?? {},
+        style
+      );
+      await writeGlobalStyleManifest(globalDir, manifest);
+      return;
+    }
+
+    const rootDir = await this.ensureScopeDir(
+      scope === 'external' || scope === 'copilotRepo' ? 'sharedGit' : scope
+    );
     const manifest = await readManifest(rootDir);
-    manifest.folders[relativePath] = {
-      ...manifest.folders[relativePath],
-      ...style,
-    };
+
+    if (scope === 'external') {
+      const external = ensureExternalOverlay(manifest);
+      external.folders[relativePath] = mergeFolderMeta(
+        external.folders[relativePath] ?? {},
+        style
+      );
+    } else if (scope === 'copilotRepo') {
+      const copilotRepo = ensureCopilotRepoOverlay(manifest);
+      copilotRepo.folders[relativePath] = mergeFolderMeta(
+        copilotRepo.folders[relativePath] ?? {},
+        style
+      );
+    } else {
+      manifest.folders[relativePath] = mergeFolderMeta(
+        manifest.folders[relativePath] ?? {},
+        style
+      );
+    }
+
     await writeManifest(rootDir, manifest);
   }
 
@@ -524,16 +745,45 @@ export class MemoryManager {
     relativePath: string,
     style: Partial<FileMeta>
   ): Promise<void> {
-    if (!scopeUsesManifest(scope)) {
-      throw new Error(i18n.error.stylesSharedGitOnly());
+    if (!scopeSupportsStyles(scope)) {
+      throw new Error(i18n.error.stylesUnsupportedScope());
     }
 
-    const rootDir = await this.ensureScopeDir(scope);
+    if (scope === 'copilotUser') {
+      const globalDir = this.getExtensionGlobalStoragePath();
+      const manifest = await ensureGlobalStyleManifest(globalDir);
+      manifest.files[relativePath] = mergeFileMeta(
+        manifest.files[relativePath] ?? {},
+        style
+      );
+      await writeGlobalStyleManifest(globalDir, manifest);
+      return;
+    }
+
+    const rootDir = await this.ensureScopeDir(
+      scope === 'external' || scope === 'copilotRepo' ? 'sharedGit' : scope
+    );
     const manifest = await readManifest(rootDir);
-    manifest.files[relativePath] = {
-      ...manifest.files[relativePath],
-      ...style,
-    };
+
+    if (scope === 'external') {
+      const external = ensureExternalOverlay(manifest);
+      external.files[relativePath] = mergeFileMeta(
+        external.files[relativePath] ?? {},
+        style
+      );
+    } else if (scope === 'copilotRepo') {
+      const copilotRepo = ensureCopilotRepoOverlay(manifest);
+      copilotRepo.files[relativePath] = mergeFileMeta(
+        copilotRepo.files[relativePath] ?? {},
+        style
+      );
+    } else {
+      manifest.files[relativePath] = mergeFileMeta(
+        manifest.files[relativePath] ?? {},
+        style
+      );
+    }
+
     await writeManifest(rootDir, manifest);
   }
 
@@ -580,6 +830,76 @@ export class MemoryManager {
     } catch {
       return raw;
     }
+  }
+
+  private async syncCopilotStyleOnRemove(
+    scope: MemoryScope,
+    relativePath: string,
+    isFolder: boolean
+  ): Promise<void> {
+    if (scope === 'copilotRepo') {
+      const sharedRoot = this.getRootForScope('sharedGit');
+      if (!sharedRoot) {
+        return;
+      }
+      const manifest = await readManifest(sharedRoot);
+      if (!manifest.copilotRepo) {
+        return;
+      }
+      removeOverlayPaths(manifest.copilotRepo, relativePath, isFolder);
+      await writeManifest(sharedRoot, manifest);
+      return;
+    }
+
+    if (scope === 'copilotUser') {
+      const globalDir = this.getExtensionGlobalStoragePath();
+      const manifest = await readGlobalStyleManifest(globalDir);
+      removeOverlayPaths(
+        { folders: manifest.folders, files: manifest.files },
+        relativePath,
+        isFolder
+      );
+      await writeGlobalStyleManifest(globalDir, manifest);
+    }
+  }
+
+  private async syncCopilotStyleOnRename(
+    scope: MemoryScope,
+    fromRelative: string,
+    toRelative: string,
+    isFolder: boolean
+  ): Promise<void> {
+    if (scope === 'copilotRepo') {
+      const sharedRoot = this.getRootForScope('sharedGit');
+      if (!sharedRoot) {
+        return;
+      }
+      const manifest = await readManifest(sharedRoot);
+      if (!manifest.copilotRepo) {
+        return;
+      }
+      renameOverlayPaths(manifest.copilotRepo, fromRelative, toRelative, isFolder);
+      await writeManifest(sharedRoot, manifest);
+      return;
+    }
+
+    if (scope === 'copilotUser') {
+      const globalDir = this.getExtensionGlobalStoragePath();
+      const manifest = await readGlobalStyleManifest(globalDir);
+      renameOverlayPaths(
+        { folders: manifest.folders, files: manifest.files },
+        fromRelative,
+        toRelative,
+        isFolder
+      );
+      await writeGlobalStyleManifest(globalDir, manifest);
+    }
+  }
+}
+
+function assertMutableScope(scope: MemoryScope): void {
+  if (scope === 'external') {
+    throw new Error(i18n.error.externalReadOnly());
   }
 }
 

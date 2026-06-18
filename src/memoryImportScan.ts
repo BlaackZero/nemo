@@ -4,10 +4,10 @@ import * as vscode from 'vscode';
 import { getCopilotRepoMemoryDir } from './copilotMemoryPaths';
 import { i18n } from './i18n';
 import { MemoryManager } from './memoryManager';
-import { getLegacyPersonalRoot, getWorkspaceFolderPath } from './memoryStorePaths';
+import { getWorkspaceFolderPath } from './memoryStorePaths';
 import { ImportTarget } from './types';
 
-export type ImportSourceKind = 'aiConvention' | 'repoMarkdown' | 'legacyPersonal';
+export type ImportSourceKind = 'aiConvention' | 'repoMarkdown';
 
 export interface ImportCandidate {
   id: string;
@@ -82,12 +82,10 @@ export function isExcludedPath(
 
 function kindDescription(kind: ImportSourceKind): string {
   switch (kind) {
-    case 'legacyPersonal':
-      return i18n.import.sourceLegacyPersonal();
     case 'aiConvention':
       return i18n.import.sourceAi();
     case 'repoMarkdown':
-      return i18n.import.sourceRepo();
+      return i18n.import.sourceProject();
   }
 }
 
@@ -152,58 +150,6 @@ export async function scanAiConventionPaths(
   }
 
   return results;
-}
-
-async function walkLegacyPersonalFiles(
-  absoluteDir: string,
-  parentRelative: string | undefined,
-  candidates: ImportCandidate[]
-): Promise<void> {
-  let entries;
-  try {
-    entries = await fs.readdir(absoluteDir, { withFileTypes: true });
-  } catch {
-    return;
-  }
-
-  for (const entry of entries) {
-    const relativePath = parentRelative
-      ? `${parentRelative}/${entry.name}`
-      : entry.name;
-    const absolutePath = path.join(absoluteDir, entry.name);
-
-    if (entry.isDirectory()) {
-      await walkLegacyPersonalFiles(absolutePath, relativePath, candidates);
-      continue;
-    }
-
-    if (
-      entry.isFile() &&
-      (entry.name.endsWith('.md') || entry.name.endsWith('.json'))
-    ) {
-      candidates.push({
-        id: `legacyPersonal:${relativePath}`,
-        kind: 'legacyPersonal',
-        sourcePath: absolutePath,
-        workspaceRelative: relativePath,
-        targetRelative: relativePath.replace(/\.json$/i, '.md'),
-        label: entry.name,
-        description: kindDescription('legacyPersonal'),
-        conflict: false,
-      });
-    }
-  }
-}
-
-async function scanLegacyPersonal(manager: MemoryManager): Promise<ImportCandidate[]> {
-  const legacyRoot = getLegacyPersonalRoot(manager);
-  if (!legacyRoot || !(await fileExists(legacyRoot))) {
-    return [];
-  }
-
-  const candidates: ImportCandidate[] = [];
-  await walkLegacyPersonalFiles(legacyRoot, undefined, candidates);
-  return candidates;
 }
 
 async function scanCopilotRepoExisting(
@@ -359,11 +305,6 @@ export async function scanImportCandidates(
     candidates.push(await attachConflictFlag(candidate, targetRoot, manager));
   };
 
-  const legacyCandidates = await scanLegacyPersonal(manager);
-  for (const legacy of legacyCandidates) {
-    await addCandidate(legacy);
-  }
-
   const aiPaths = await scanAiConventionPaths(workspaceRoot);
   const aiPathSet = new Set(aiPaths);
   const copilotExisting = await scanCopilotRepoExisting(manager);
@@ -405,4 +346,46 @@ export async function scanImportCandidates(
   });
 
   return candidates;
+}
+
+export async function scanExternalMarkdownPaths(
+  manager: MemoryManager
+): Promise<string[]> {
+  const workspaceRoot = manager.getRootForScope('external');
+  if (!workspaceRoot) {
+    return [];
+  }
+
+  const sharedPath = manager.getConfig().sharedPath;
+  const aiPaths = await scanAiConventionPaths(workspaceRoot);
+  const aiPathSet = new Set(aiPaths);
+  const repoPaths = await scanRepoMarkdown(sharedPath, aiPathSet);
+  const combined = [...aiPaths, ...repoPaths];
+  combined.sort((a, b) => a.localeCompare(b));
+  return combined;
+}
+
+export async function buildImportCandidateForPath(
+  manager: MemoryManager,
+  workspaceRelative: string
+): Promise<ImportCandidate | undefined> {
+  const workspaceRoot = getWorkspaceFolderPath();
+  if (!workspaceRoot) {
+    return undefined;
+  }
+
+  const aiPaths = await scanAiConventionPaths(workspaceRoot);
+  const kind: ImportSourceKind = aiPaths.includes(workspaceRelative)
+    ? 'aiConvention'
+    : 'repoMarkdown';
+
+  return buildRepoCandidate(workspaceRelative, workspaceRoot, kind);
+}
+
+export async function isPathInProjectMemory(
+  manager: MemoryManager,
+  workspaceRelative: string
+): Promise<boolean> {
+  const copilotExisting = await scanCopilotRepoExisting(manager);
+  return copilotExisting.has(toCopilotRepoRelative(workspaceRelative));
 }

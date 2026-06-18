@@ -18,7 +18,16 @@ export function isCopilotScope(scope: MemoryScope): boolean {
 }
 
 export function scopeUsesManifest(scope: MemoryScope): boolean {
-  return scope === 'sharedGit';
+  return scope === 'sharedGit' || scope === 'external';
+}
+
+export function scopeSupportsStyles(scope: MemoryScope): boolean {
+  return (
+    scope === 'sharedGit' ||
+    scope === 'external' ||
+    scope === 'copilotRepo' ||
+    scope === 'copilotUser'
+  );
 }
 
 export function getCopilotRepoMemoryDir(
@@ -60,6 +69,9 @@ export function virtualPathForScope(
   }
   if (scope === 'copilotUser') {
     return normalized ? `/memories/${normalized}` : '/memories/';
+  }
+  if (scope === 'external') {
+    return normalized;
   }
   return normalized;
 }

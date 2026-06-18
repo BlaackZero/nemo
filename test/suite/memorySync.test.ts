@@ -15,6 +15,7 @@ function mockScopeRoots(
     copilotRepo: path.join(tempRoot, 'copilot-repo'),
     copilotUser: path.join(tempRoot, 'copilot-user'),
     sharedGit: path.join(workspaceRoot, '.nemo'),
+    external: workspaceRoot,
   };
 
   Object.defineProperty(manager, 'getRootForScope', {
@@ -41,8 +42,6 @@ suite('memorySync', () => {
 
     Object.defineProperty(manager, 'getConfig', {
       value: () => ({
-        storageLocation: 'home' as const,
-        repoIdStrategy: 'workspaceName' as const,
         sharedPath: '.nemo',
       }),
     });

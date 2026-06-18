@@ -33,13 +33,15 @@ suite('nodeStyle', () => {
 
   test('buildIconPickItems previews icons with selected color', () => {
     const items = buildIconPickItems('terminal.ansiGreen', undefined, 'folder');
-    assert.strictEqual(items.length, THEME_ICONS.length);
+    assert.strictEqual(items[0]?.pick.kind, 'default');
+    assert.strictEqual(items.length, 1 + THEME_ICONS.length);
     assert.ok(items.every((item) => item.iconPath));
   });
 
   test('buildIconPickItems adds keep-current when icon is set', () => {
     const items = buildIconPickItems(undefined, 'cloud', 'folder');
-    assert.strictEqual(items.length, 1 + THEME_ICONS.length);
-    assert.strictEqual(items[0]?.pick.kind, 'keep');
+    assert.strictEqual(items.length, 2 + THEME_ICONS.length);
+    assert.strictEqual(items[0]?.pick.kind, 'default');
+    assert.strictEqual(items[1]?.pick.kind, 'keep');
   });
 });

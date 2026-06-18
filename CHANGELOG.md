@@ -5,99 +5,73 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.0.0] - 2026-06-18
-
-### Added
-
-- **Native Copilot memory management** — sidebar sections for **Repository memory** (`/memories/repo/`) and **User memory** (`/memories/`), reading/writing `GitHub.copilot-chat/memory-tool` paths on disk.
-- **`nemo.syncToCopilotRepo`** — copy Shared (Git) → Copilot repository memory.
-- **`nemo.promoteToGit`** — copy Copilot memory → Shared (Git).
-- **`nemo.migrateLegacyStorage`** — one-time migration from v1 `~/.nemo-store/`.
-- Module [`copilotMemoryPaths.ts`](src/copilotMemoryPaths.ts) centralizing Copilot storage resolution.
-
-### Changed (breaking)
-
-- `MemoryScope`: `personal` / `shared` → `copilotRepo` / `copilotUser` / `sharedGit`.
-- Import wizard default destination: **Copilot repository memory** (optional Shared Git or both).
-- Colors/icons manifest (`.nemo.json`) applies to **Shared (Git)** only.
-- Removed `nemo.shareToRepo` / `nemo.unshareFromRepo` (replaced by sync/promote commands).
-
-## [1.1.0] - 2026-06-18
-
-### Added
-
-- **Import context to Nemo** wizard (`nemo.importContext`): scans personal memories, AI convention paths (Copilot, Cursor rules, `AGENTS.md`), and repo markdown; multi‑select QuickPick; **move** into `.nemo/` with confirmation.
-- Optional `importedFrom` field on shared manifest entries for audit trail.
-
-## [1.0.0] - 2026-06-18
-
-### Added
-
-- Rebrand to **Nemo** — *Context memories for Copilot*.
-- English README with install, commands, FAQ, and storage docs.
-
-### Changed (breaking)
-
-- Extension ID: `repo-memory` → `nemo-context`
-- Settings: `repoMemory.*` → `nemo.*`
-- Shared folder default: `.repo-memory` → `.nemo`
-- Manifest: `.repo-memory.json` → `.nemo.json`
-- Personal store: `~/.repo-memory-store` → `~/.nemo-store`
-- Copilot prompt markers: `Repo Memory` → `Nemo`
-
-No automatic data migration. Rename folders manually or set `nemo.sharedPath` to your old path.
-
 ## [0.3.1] - 2026-06-18
 
 ### Added
 
-- Localización (i18n) de la UI en **inglés** y **español** vía VS Code `l10n`.
-- Strings del manifest (`package.nls.json` / `package.nls.es.json`) y runtime (`l10n/bundle.l10n*.json`).
+- **Color and icon** for **Project Memory** and **Global Memory** via style overlays (Copilot files unchanged).
+- Project Memory styles stored in `.nemo.json` under `copilotRepo`.
+- Global Memory styles stored in extension globalStorage (`.nemo-global-styles.json`).
 
 ### Changed
 
-- Mensajes, diálogos, sidebar y prompts de Copilot usan `vscode.l10n.t()`; el idioma sigue la configuración de VS Code.
+- Style picker now available for all four tree sections (Project, Global, Shared, External).
+- Folder rename/delete/move in Copilot scopes keeps style overlay paths in sync.
 
 ## [0.3.0] - 2026-06-18
 
 ### Added
 
-- Dos zonas en el sidebar: **Compartidas (Git)** y **Personales**.
-- Memorias compartidas en `{workspace}/.repo-memory/` (setting `repoMemory.sharedPath`).
-- Comandos **Compartir con el repo** (move personal → shared) y **Mover a personales**.
-- Comando **Abrir carpeta compartida** en el explorador.
-- Drag-and-drop entre zonas para compartir/retirar memorias.
-- Manifest `.repo-memory.json` independiente por zona.
+- **External** section — read-only tree of project markdown (AI instruction files + project markdown); **Inject into Chat** without moving files.
+- **`nemo.importExternalFile`** — import a single External file to Project Memory, Shared (Git), or both.
+- Colors and icons for **External** items via `external` overlay in `.nemo.json`.
 
 ### Changed
 
-- `MemoryManager` parametrizado por `MemoryScope` (`personal` | `shared`).
-- Menús y context values actualizados por tipo de memoria.
+- UI rename: **Repository memory** → **Project Memory**, **User memory** → **Global Memory** (ES: Memoria de proyecto / Memoria global).
+- Style picker available for **Shared (Git)** and **External** (not Project/Global Copilot-native files).
+
+### Planned
+
+- Pinned favorites in External
+- External manual sort / drag reorder
+- Section visibility settings
 
 ## [0.2.0] - 2026-06-18
 
 ### Added
 
-- Inyección en Copilot Chat via `github.copilot.chat.attachFile` con fallbacks.
-- Carpetas anidadas para organizar memorias por área (backend, infra, etc.).
-- Colores e iconos configurables por carpeta y memoria.
-- Renombrar, mover y reordenar items con drag-and-drop.
-- Manifest `.repo-memory.json` para estilos y orden persistente.
-- Comandos: `createFolder`, `renameNode`, `deleteFolder`, `setNodeStyle`.
+- **Native Copilot memory manager** — sidebar sections for **Repository memory** (`/memories/repo/`), **User memory** (`/memories/`), and **Shared (Git)** (`.nemo/`).
+- **`nemo.syncToCopilotRepo`** — copy Shared (Git) → Repository memory.
+- **`nemo.promoteToGit`** — copy Repository or User memory → Shared (Git).
+- **`nemo.importContext`** — scan **AI instruction files** and **Project markdown**; import to Repository memory, Shared (Git), or both.
+- Unified naming via `i18n.zones` across sidebar, import, sync, and promote flows.
 
 ### Changed
 
-- TreeView jerárquico con soporte `enableDragAndDrop`.
-- `MemoryFile` y `MemoryFolder` unificados como `MemoryNode`.
+- Semver reset to **beta 0.2.0** (clean slate; no 1.x/2.x baggage).
+- Configuration: only `nemo.sharedPath` (default `.nemo`).
 
-## [0.1.0] - 2026-06-18
+### Removed
 
-### Added
+- Legacy v1 migration (`nemo.migrateLegacyStorage`, `~/.nemo-store/`).
+- Deprecated settings `nemo.storageLocation` and `nemo.repoIdStrategy`.
 
-- Sidebar **Repo Memory** con listado de memorias por repositorio.
-- Creación, edición y eliminación de memorias `.md` y `.json`.
-- Almacenamiento externo en `~/.repo-memory-store` o `globalStorage`.
-- Identificación configurable del repo (`workspaceName` o `pathHash`).
-- Inyección de contexto en Copilot Chat con fallback a portapapeles.
-- Tests unitarios e integración con `@vscode/test-electron`.
-- CI con GitHub Actions.
+## Pre-beta (archived)
+
+<details>
+<summary>Earlier releases before beta 0.2.0 naming reset</summary>
+
+### [2.0.0] - 2026-06-18
+
+- Native Copilot memory management; sync/promote commands; migrate legacy storage.
+
+### [1.1.0] - 2026-06-18
+
+- Import context wizard into `.nemo/`.
+
+### [1.0.0] - 2026-06-18
+
+- Rebrand to **Nemo**; settings `nemo.*`; shared folder `.nemo/`.
+
+</details>

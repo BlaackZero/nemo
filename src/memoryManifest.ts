@@ -78,10 +78,40 @@ export interface FileMeta {
   importedFrom?: string;
 }
 
+export interface StyleOverlay {
+  folders: Record<string, FolderMeta>;
+  files: Record<string, FileMeta>;
+}
+
+/** @deprecated Use StyleOverlay */
+export type ExternalManifestOverlay = StyleOverlay;
+
 export interface MemoryManifest {
   version: 1;
   folders: Record<string, FolderMeta>;
   files: Record<string, FileMeta>;
+  external?: StyleOverlay;
+  copilotRepo?: StyleOverlay;
+}
+
+export interface GlobalStyleManifest {
+  version: 1;
+  folders: Record<string, FolderMeta>;
+  files: Record<string, FileMeta>;
+}
+
+export const GLOBAL_STYLE_MANIFEST_FILENAME = '.nemo-global-styles.json';
+
+export function createEmptyStyleOverlay(): StyleOverlay {
+  return { folders: {}, files: {} };
+}
+
+export function createEmptyExternalOverlay(): StyleOverlay {
+  return createEmptyStyleOverlay();
+}
+
+export function createEmptyGlobalStyleManifest(): GlobalStyleManifest {
+  return { version: 1, folders: {}, files: {} };
 }
 
 export function createEmptyManifest(): MemoryManifest {
@@ -102,6 +132,18 @@ export async function readManifest(repoDir: string): Promise<MemoryManifest> {
       version: 1,
       folders: parsed.folders ?? {},
       files: parsed.files ?? {},
+      external: parsed.external
+        ? {
+            folders: parsed.external.folders ?? {},
+            files: parsed.external.files ?? {},
+          }
+        : undefined,
+      copilotRepo: parsed.copilotRepo
+        ? {
+            folders: parsed.copilotRepo.folders ?? {},
+            files: parsed.copilotRepo.files ?? {},
+          }
+        : undefined,
     };
   } catch {
     return createEmptyManifest();
@@ -144,6 +186,206 @@ export function getFileMeta(
   relativePath: string
 ): FileMeta {
   return manifest.files[relativePath] ?? {};
+}
+
+export function getExternalFolderMeta(
+  manifest: MemoryManifest,
+  relativePath: string
+): FolderMeta {
+  return manifest.external?.folders[relativePath] ?? {};
+}
+
+export function getExternalFileMeta(
+  manifest: MemoryManifest,
+  relativePath: string
+): FileMeta {
+  return manifest.external?.files[relativePath] ?? {};
+}
+
+export function ensureExternalOverlay(manifest: MemoryManifest): StyleOverlay {
+  if (!manifest.external) {
+    manifest.external = createEmptyStyleOverlay();
+  }
+  return manifest.external;
+}
+
+export function ensureCopilotRepoOverlay(manifest: MemoryManifest): StyleOverlay {
+  if (!manifest.copilotRepo) {
+    manifest.copilotRepo = createEmptyStyleOverlay();
+  }
+  return manifest.copilotRepo;
+}
+
+export function getCopilotRepoFolderMeta(
+  manifest: MemoryManifest,
+  relativePath: string
+): FolderMeta {
+  return manifest.copilotRepo?.folders[relativePath] ?? {};
+}
+
+export function getCopilotRepoFileMeta(
+  manifest: MemoryManifest,
+  relativePath: string
+): FileMeta {
+  return manifest.copilotRepo?.files[relativePath] ?? {};
+}
+
+export function getGlobalStyleManifestPath(globalStorageDir: string): string {
+  return path.join(globalStorageDir, GLOBAL_STYLE_MANIFEST_FILENAME);
+}
+
+export async function readGlobalStyleManifest(
+  globalStorageDir: string
+): Promise<GlobalStyleManifest> {
+  const manifestPath = getGlobalStyleManifestPath(globalStorageDir);
+
+  try {
+    const raw = await fs.readFile(manifestPath, 'utf8');
+    const parsed = JSON.parse(raw) as Partial<GlobalStyleManifest>;
+    return {
+      version: 1,
+      folders: parsed.folders ?? {},
+      files: parsed.files ?? {},
+    };
+  } catch {
+    return createEmptyGlobalStyleManifest();
+  }
+}
+
+export async function writeGlobalStyleManifest(
+  globalStorageDir: string,
+  manifest: GlobalStyleManifest
+): Promise<void> {
+  await fs.mkdir(globalStorageDir, { recursive: true });
+  const manifestPath = getGlobalStyleManifestPath(globalStorageDir);
+  await fs.writeFile(
+    manifestPath,
+    `${JSON.stringify(manifest, null, 2)}\n`,
+    'utf8'
+  );
+}
+
+export async function ensureGlobalStyleManifest(
+  globalStorageDir: string
+): Promise<GlobalStyleManifest> {
+  await fs.mkdir(globalStorageDir, { recursive: true });
+  const manifestPath = getGlobalStyleManifestPath(globalStorageDir);
+
+  try {
+    await fs.access(manifestPath);
+  } catch {
+    const empty = createEmptyGlobalStyleManifest();
+    await writeGlobalStyleManifest(globalStorageDir, empty);
+    return empty;
+  }
+
+  return readGlobalStyleManifest(globalStorageDir);
+}
+
+export function getCopilotUserFolderMeta(
+  manifest: GlobalStyleManifest,
+  relativePath: string
+): FolderMeta {
+  return manifest.folders[relativePath] ?? {};
+}
+
+export function getCopilotUserFileMeta(
+  manifest: GlobalStyleManifest,
+  relativePath: string
+): FileMeta {
+  return manifest.files[relativePath] ?? {};
+}
+
+export function renameOverlayPaths(
+  overlay: StyleOverlay,
+  fromRelative: string,
+  toRelative: string,
+  isFolder: boolean
+): void {
+  if (isFolder) {
+    const folderMeta = overlay.folders[fromRelative];
+    if (folderMeta) {
+      delete overlay.folders[fromRelative];
+      overlay.folders[toRelative] = folderMeta;
+    }
+
+    for (const key of Object.keys(overlay.folders)) {
+      if (key.startsWith(`${fromRelative}/`)) {
+        const suffix = key.slice(fromRelative.length);
+        overlay.folders[`${toRelative}${suffix}`] = overlay.folders[key];
+        delete overlay.folders[key];
+      }
+    }
+
+    for (const key of Object.keys(overlay.files)) {
+      if (key === fromRelative || key.startsWith(`${fromRelative}/`)) {
+        const suffix = key.slice(fromRelative.length);
+        overlay.files[`${toRelative}${suffix}`] = overlay.files[key];
+        delete overlay.files[key];
+      }
+    }
+
+    return;
+  }
+
+  const fileMeta = overlay.files[fromRelative];
+  if (fileMeta) {
+    delete overlay.files[fromRelative];
+    overlay.files[toRelative] = fileMeta;
+  }
+}
+
+export function removeOverlayPaths(
+  overlay: StyleOverlay,
+  relativePath: string,
+  isFolder: boolean
+): void {
+  if (isFolder) {
+    delete overlay.folders[relativePath];
+    for (const key of Object.keys(overlay.folders)) {
+      if (key.startsWith(`${relativePath}/`)) {
+        delete overlay.folders[key];
+      }
+    }
+    for (const key of Object.keys(overlay.files)) {
+      if (key.startsWith(`${relativePath}/`)) {
+        delete overlay.files[key];
+      }
+    }
+    return;
+  }
+
+  delete overlay.files[relativePath];
+}
+
+function mergeMeta<T extends FolderMeta | FileMeta>(
+  existing: T,
+  update: Partial<T>
+): T {
+  const next: T = { ...existing };
+  for (const key of Object.keys(update) as Array<keyof T>) {
+    const value = update[key];
+    if (value === undefined) {
+      delete next[key];
+    } else {
+      next[key] = value;
+    }
+  }
+  return next;
+}
+
+export function mergeFolderMeta(
+  existing: FolderMeta,
+  update: Partial<FolderMeta>
+): FolderMeta {
+  return mergeMeta(existing, update);
+}
+
+export function mergeFileMeta(
+  existing: FileMeta,
+  update: Partial<FileMeta>
+): FileMeta {
+  return mergeMeta(existing, update);
 }
 
 export function compareByOrder(

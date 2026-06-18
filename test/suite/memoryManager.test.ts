@@ -6,6 +6,7 @@ import {
   compareByOrder,
   createEmptyManifest,
   ensureManifest,
+  MemoryManifest,
   renameManifestPaths,
   updateSiblingOrder,
 } from '../../src/memoryManifest';
@@ -51,6 +52,15 @@ suite('memoryManifest', () => {
     await fs.access(path.join(storeDir, '.nemo.json'));
     await fs.rm(tempRoot, { recursive: true, force: true });
   });
+
+  test('mergeFolderMeta clears undefined style keys', async () => {
+    const { mergeFolderMeta } = await import('../../src/memoryManifest');
+    const merged = mergeFolderMeta(
+      { color: 'terminal.ansiBlue', icon: 'server', label: 'API' },
+      { color: undefined, icon: undefined, label: undefined }
+    );
+    assert.deepStrictEqual(merged, {});
+  });
 });
 
 suite('memoryManager helpers', () => {
@@ -82,17 +92,7 @@ suite('memoryManager file operations', () => {
 
     Object.defineProperty(manager, 'getConfig', {
       value: () => ({
-        storageLocation: 'home' as const,
-        repoIdStrategy: 'workspaceName' as const,
         sharedPath: '.nemo',
-      }),
-    });
-
-    Object.defineProperty(manager, 'getCurrentRepoIdentity', {
-      value: () => ({
-        repoId: 'test-repo',
-        displayName: 'test-repo',
-        workspacePath: workspaceRoot,
       }),
     });
 
@@ -106,6 +106,7 @@ suite('memoryManager file operations', () => {
           copilotRepo: path.join(tempRoot, 'copilot-repo'),
           copilotUser: path.join(tempRoot, 'copilot-user'),
           sharedGit: path.join(workspaceRoot, '.nemo'),
+          external: workspaceRoot,
         };
         return roots[scope];
       },
@@ -211,5 +212,78 @@ suite('memoryManager file operations', () => {
     await manager.deleteMemory('copilotRepo', created.filePath, created.relativePath);
 
     await assert.rejects(() => fs.access(created.filePath));
+  });
+
+  test('setFolderStyle persists color icon and label for sharedGit folders', async () => {
+    await manager.createFolder('sharedGit', 'backend');
+
+    await manager.setFolderStyle('sharedGit', 'backend', {
+      color: 'terminal.ansiGreen',
+      icon: 'server',
+      label: 'API Backend',
+    });
+
+    const manifest = await manager.getManifest('sharedGit');
+    assert.ok(manifest);
+    assert.strictEqual(manifest.folders.backend?.color, 'terminal.ansiGreen');
+    assert.strictEqual(manifest.folders.backend?.icon, 'server');
+    assert.strictEqual(manifest.folders.backend?.label, 'API Backend');
+  });
+
+  test('setFolderStyle clears custom folder styles when reset', async () => {
+    await manager.createFolder('sharedGit', 'backend');
+    await manager.setFolderStyle('sharedGit', 'backend', {
+      color: 'terminal.ansiGreen',
+      icon: 'server',
+      label: 'API Backend',
+    });
+
+    await manager.setFolderStyle('sharedGit', 'backend', {
+      color: undefined,
+      icon: undefined,
+      label: undefined,
+    });
+
+    const manifest = await manager.getManifest('sharedGit');
+    assert.deepStrictEqual(manifest?.folders.backend, {});
+  });
+
+  test('setFolderStyle persists copilotRepo overlay in workspace manifest', async () => {
+    await manager.createFolder('copilotRepo', 'backend');
+
+    await manager.setFolderStyle('copilotRepo', 'backend', {
+      color: 'terminal.ansiBlue',
+      icon: 'server',
+      label: 'API Backend',
+    });
+
+    const manifest = (await manager.getManifest('copilotRepo')) as MemoryManifest;
+    assert.ok(manifest.copilotRepo);
+    assert.strictEqual(manifest.copilotRepo.folders.backend?.icon, 'server');
+    assert.strictEqual(manifest.copilotRepo.folders.backend?.label, 'API Backend');
+  });
+
+  test('renameNode moves copilotRepo style overlay paths', async () => {
+    await manager.createFolder('copilotRepo', 'backend');
+    await manager.setFolderStyle('copilotRepo', 'backend', { icon: 'server' });
+
+    await manager.renameNode('copilotRepo', 'backend', 'api', true);
+
+    const manifest = (await manager.getManifest('copilotRepo')) as MemoryManifest;
+    assert.strictEqual(manifest.copilotRepo?.folders.api?.icon, 'server');
+    assert.strictEqual(manifest.copilotRepo?.folders.backend, undefined);
+  });
+
+  test('deleteMemory removes copilotRepo file style overlay', async () => {
+    const created = await manager.createMemory('copilotRepo', 'temp', 'markdown');
+    await manager.setFileStyle('copilotRepo', created.relativePath, {
+      icon: 'book',
+      color: 'terminal.ansiCyan',
+    });
+
+    await manager.deleteMemory('copilotRepo', created.filePath, created.relativePath);
+
+    const manifest = (await manager.getManifest('copilotRepo')) as MemoryManifest;
+    assert.strictEqual(manifest.copilotRepo?.files[created.relativePath], undefined);
   });
 });

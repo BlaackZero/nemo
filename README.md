@@ -2,6 +2,7 @@
 
 *Native Copilot memory manager for VS Code*
 
+[![Beta 0.3.1](https://img.shields.io/badge/beta-0.3.1-orange)](CHANGELOG.md)
 [![VS Code 1.90+](https://img.shields.io/badge/VS%20Code-1.90%2B-blue)](https://code.visualstudio.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![i18n EN / ES](https://img.shields.io/badge/i18n-EN%20%7C%20ES-lightgrey)](#languages)
@@ -9,37 +10,69 @@
 
 ---
 
-**Nemo v2** is a sidebar to view and manage the same memory files Copilot Chat already uses — plus an optional **Shared (Git)** layer for team context in your repository.
+**Nemo beta 0.3.1** manages Copilot native memories plus team-shared Git context and a read-only view of project markdown you can attach to chat without moving files.
 
 ## How it works
 
-Three layers in one sidebar:
+Four zones in one sidebar:
 
-| Section | Copilot virtual path | On disk | Git |
-|---------|---------------------|---------|-----|
-| **Repository memory** | `/memories/repo/` | `workspaceStorage/.../GitHub.copilot-chat/memory-tool/memories/repo/` | No |
-| **User memory** | `/memories/` | `globalStorage/GitHub.copilot-chat/memory-tool/memories/` | No |
-| **Shared (Git)** | — | `{workspace}/.nemo/` + `.nemo.json` | Yes |
+| Section | Copilot virtual path | On disk | Git | Editable |
+|---------|---------------------|---------|-----|----------|
+| **Project Memory** | `/memories/repo/` | `workspaceStorage/.../GitHub.copilot-chat/.../repo/` | No | Yes |
+| **Global Memory** | `/memories/` | `globalStorage/.../GitHub.copilot-chat/.../` | No | Yes |
+| **Shared (Git)** | — | `{workspace}/.nemo/` + `.nemo.json` | Yes | Yes |
+| **External** | — | Project markdown in place (AI files + repo `.md`) | Yes (source files) | Read-only |
 
 Nemo reads and writes Copilot's native paths directly. Copilot Chat continues to use those files through its [memory tool](https://code.visualstudio.com/docs/copilot/agents/memory).
 
-**Inject into Chat** attaches any memory file via `github.copilot.chat.attachFile` with clipboard fallbacks.
+**Inject into Chat** attaches any memory or external markdown file via `github.copilot.chat.attachFile` with clipboard fallbacks.
+
+## When to use each zone
+
+| You want… | Use… |
+|-----------|------|
+| Context for **this project only** (local Copilot agent) | **Project Memory** |
+| Preferences that apply in **all your projects** | **Global Memory** |
+| Team canon **committed to Git** | **Shared (Git)** → commit `.nemo/` |
+| Browse project markdown and **attach without importing** | **External** |
+| Move scattered docs into managed memory | **Import to memory** (from toolbar or External item menu) |
+
+Project and Global memories stay on your machine (not in Git). Shared (Git) and External source files live in the repository.
 
 ## Quick start
 
-1. Install **GitHub Copilot Chat** (required for native memory paths).
+1. Install **GitHub Copilot Chat** (required for Project/Global memory paths).
 2. Open a workspace and the **Nemo** panel.
-3. Create or edit memories under **Repository memory** — they appear in Copilot as `/memories/repo/...`.
-4. Use **Promote to Shared (Git)** when team canon should live in the repo.
-5. Use **Sync to Copilot repo memory** to pull `.nemo/` content into your local agent context.
+3. Create memories under **Project Memory** — they appear in Copilot as `/memories/repo/...`.
+4. Use **External** to open or inject `AGENTS.md`, Cursor rules, and other project markdown in place.
+5. Use **Copy to Shared (Git)** when team canon should live in the repo.
+6. Use **Copy to Project memory** to pull `.nemo/` content into your local agent context.
 
-### Import context
+### Import to memory
 
-**Import context** scans AI convention files (`AGENTS.md`, `.github/copilot-instructions.md`, Cursor rules), repo markdown, and legacy `~/.nemo-store/` files. Default destination: **Copilot repository memory**; optional **Shared (Git)** or both.
+**Import to memory** scans **AI instruction files** and **Project markdown** and copies them into Project Memory, Shared (Git), or both. External shows the same sources read-only; use **Import to memory** on an External file to copy it.
 
-### Migrate legacy storage
+## Customization
 
-If you used Nemo v1 (`~/.nemo-store/`), run **Migrate legacy storage** once to move files into Copilot user/repo memory or Shared (Git).
+Right-click any folder or file in **Project Memory**, **Global Memory**, **Shared (Git)**, or **External** → **Color and icon**:
+
+| Feature | Project Memory | Global Memory | Shared (Git) | External |
+|---------|----------------|---------------|--------------|----------|
+| Folder color & icon | `.nemo.json` → `copilotRepo.folders` | Extension globalStorage → `.nemo-global-styles.json` | `.nemo.json` → `folders` | `.nemo.json` → `external.folders` |
+| Folder display name | `copilotRepo.folders.*.label` | `folders.*.label` (global file) | `folders.*.label` | `external.folders.*.label` |
+| File color & icon | `copilotRepo.files` | `files` (global file) | `files` | `external.files` |
+| Drag-and-drop reorder | Shared folders/files only | — | Yes | Planned |
+
+Pick **No color** or **Default icon** to reset custom styles. After color/icon, folders prompt for an optional display name.
+
+Styles are overlays only — Copilot memory files on disk are unchanged.
+
+### Roadmap
+
+- Pinned favorites in External
+- Manual sort order for External tree
+- More icon and color choices
+- Hide sections via settings
 
 ## Copilot injection
 
@@ -49,45 +82,35 @@ If you used Nemo v1 (`~/.nemo-store/`), run **Migrate legacy storage** once to m
 | 2 | Insert a short prompt asking Copilot to use the attachment |
 | 3 | Fallback: paste full content or copy to clipboard |
 
-## Organize memories
-
-- **Repository / User memory:** plain `.md` files — no Nemo manifest (Copilot-native).
-- **Shared (Git):** folders, colors, icons, order in `.nemo.json`.
-- Drag-and-drop: Shared (Git) → Repository memory (sync), Copilot → Shared (Git) (promote).
-
 ## Commands
 
 | Command | What it does |
 |---------|--------------|
-| **New memory / folder** | Create under the selected section |
+| **New memory / folder** | Create under Project, Global, or Shared (Git) |
 | **Edit memory** | Open the file in the editor |
-| **Inject into Chat** | Attach memory context in Copilot Chat |
-| **Sync to Copilot repo memory** | Copy Shared (Git) → `/memories/repo/` |
-| **Promote to Shared (Git)** | Copy Copilot memory → `.nemo/` for the team |
-| **Import context** | Scan and import scattered markdown |
-| **Migrate legacy storage** | Move v1 `~/.nemo-store/` into v2 scopes |
-| **Open shared folder** | Reveal `.nemo/` in the explorer |
-| **Color and icon** | Shared (Git) only |
+| **Inject into Chat** | Attach context in Copilot Chat |
+| **Copy to Project memory** | Copy Shared (Git) → `/memories/repo/` |
+| **Copy to Shared (Git)** | Copy Project or Global memory → `.nemo/` |
+| **Import to memory** | Scan and import scattered markdown |
+| **Color and icon** | All tree items (style overlays) |
 | **Refresh** | Reload the tree |
+
+## Compatibility
+
+| Feature | VS Code + Copilot Chat | Cursor + Copilot Chat | Cursor without Copilot |
+|---------|------------------------|------------------------|-------------------------|
+| Shared (Git) | Yes | Yes | Yes |
+| External + import | Yes | Yes | Yes |
+| Project / Global memory | Yes | Yes* | Limited |
+| Inject into Chat | Yes | Yes* | Clipboard fallback |
+
+Install via **Extensions: Install from VSIX…** (`nemo-context-0.3.1.vsix`).
 
 ## Configuration
 
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `nemo.sharedPath` | `.nemo` | Workspace folder for Shared (Git) memories |
-| `nemo.storageLocation` | `home` | *Deprecated v1* — migration only |
-| `nemo.repoIdStrategy` | `workspaceName` | *Deprecated v1* — migration only |
-
-## FAQ
-
-**How is this different from Copilot Memory (GitHub-hosted)?**
-Nemo manages the **local memory tool** files on disk. [Copilot Memory](https://docs.github.com/copilot/how-tos/use-copilot-agents/copilot-memory) is a separate, opt-in GitHub-hosted feature.
-
-**Do I still commit `.nemo/`?**
-Yes, when you want team-shared canon in Git. Repository/User Copilot memories stay local per machine.
-
-**What happened to Personal (`~/.nemo-store/`)?**
-Removed in v2. Use **User memory** or **Migrate legacy storage**.
 
 ## Development
 

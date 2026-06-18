@@ -17,7 +17,10 @@ type ColorPickResult =
   | { kind: 'keep' }
   | { kind: 'color'; value: ThemeColorId };
 
-type IconPickResult = { kind: 'keep' } | { kind: 'icon'; value: ThemeIconId };
+type IconPickResult =
+  | { kind: 'keep' }
+  | { kind: 'default' }
+  | { kind: 'icon'; value: ThemeIconId };
 
 export interface StyleQuickPickItem<T> extends vscode.QuickPickItem {
   pick: T;
@@ -74,7 +77,13 @@ export function buildIconPickItems(
   currentIcon: ThemeIconId | undefined,
   fallbackIcon: ThemeIconId
 ): StyleQuickPickItem<IconPickResult>[] {
-  const items: StyleQuickPickItem<IconPickResult>[] = [];
+  const items: StyleQuickPickItem<IconPickResult>[] = [
+    {
+      label: i18n.style.defaultIcon(),
+      iconPath: resolveNodeIcon(fallbackIcon, selectedColor, fallbackIcon),
+      pick: { kind: 'default' },
+    },
+  ];
 
   if (currentIcon) {
     items.push({
@@ -135,7 +144,9 @@ export async function pickNodeStyle(
   const selectedIcon =
     iconPick.pick.kind === 'keep'
       ? current?.icon ?? fallbackIcon
-      : iconPick.pick.value;
+      : iconPick.pick.kind === 'default'
+        ? undefined
+        : iconPick.pick.value;
 
   return { icon: selectedIcon, color: selectedColor };
 }

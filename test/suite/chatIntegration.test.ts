@@ -46,7 +46,7 @@ suite('chatIntegration', () => {
     assert.strictEqual(calls.length, 1);
     assert.strictEqual(calls[0]?.command, CHAT_OPEN_COMMAND);
     assert.deepStrictEqual(calls[0]?.args[0], {
-      query: 'Use the attached memory as repository context.',
+      query: 'Use the attached memory as project context.',
       isPartialQuery: true,
     });
   });

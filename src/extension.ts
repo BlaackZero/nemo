@@ -1,11 +1,14 @@
 import * as vscode from 'vscode';
-import { isCopilotScope } from './copilotMemoryPaths';
+import { isCopilotScope, scopeSupportsStyles } from './copilotMemoryPaths';
 import { i18n } from './i18n';
 import { injectMemoryIntoChat } from './chatIntegration';
 import { importCandidates } from './memoryImport';
-import { scanImportCandidates, ImportCandidate } from './memoryImportScan';
-import { migrateLegacyStorageWizard } from './memoryMigrate';
-import { getFileMeta, getFolderMeta } from './memoryManifest';
+import {
+  buildImportCandidateForPath,
+  scanImportCandidates,
+  ImportCandidate,
+} from './memoryImportScan';
+import { FolderMeta } from './memoryManifest';
 import { MemoryManager } from './memoryManager';
 import { getDefaultIconForNode, pickNodeStyle } from './nodeStyle';
 import { promoteToGit, syncToCopilotRepo } from './memorySync';
@@ -63,6 +66,10 @@ export function activate(context: vscode.ExtensionContext): void {
       'nemo.createFolder',
       async (item?: MemoryTreeItem) => {
         const scope = getScopeFromItem(item);
+        if (scope === 'external') {
+          void vscode.window.showWarningMessage(i18n.error.externalReadOnly());
+          return;
+        }
         const parentRelative = getParentFolderRelativeFromItem(item);
         const name = await vscode.window.showInputBox({
           prompt: i18n.prompt.folderName(),
@@ -87,6 +94,10 @@ export function activate(context: vscode.ExtensionContext): void {
       'nemo.createMemory',
       async (item?: MemoryTreeItem) => {
         const scope = getScopeFromItem(item);
+        if (scope === 'external') {
+          void vscode.window.showWarningMessage(i18n.error.externalReadOnly());
+          return;
+        }
         const parentRelative = getParentFolderRelativeFromItem(item);
         const name = await vscode.window.showInputBox({
           prompt: i18n.prompt.memoryName(),
@@ -318,8 +329,14 @@ export function activate(context: vscode.ExtensionContext): void {
       'nemo.setNodeStyle',
       async (item?: MemoryTreeItem) => {
         const resolved = resolveTreeItem(treeView, item);
-        if (!resolved?.node || resolved.node.scope !== 'sharedGit') {
-          void vscode.window.showWarningMessage(i18n.error.stylesSharedGitOnly());
+        if (!resolved?.node) {
+          return;
+        }
+
+        if (!scopeSupportsStyles(resolved.node.scope)) {
+          void vscode.window.showWarningMessage(
+            i18n.error.stylesUnsupportedScope()
+          );
           return;
         }
 
@@ -330,8 +347,16 @@ export function activate(context: vscode.ExtensionContext): void {
 
         const isFolder = isMemoryFolder(resolved.node);
         const meta = isFolder
-          ? getFolderMeta(manifest, resolved.node.relativePath)
-          : getFileMeta(manifest, resolved.node.relativePath);
+          ? manager.getFolderMetaForNode(
+              resolved.node.relativePath,
+              manifest,
+              resolved.node.scope
+            )
+          : manager.getFileMetaForNode(
+              resolved.node.relativePath,
+              manifest,
+              resolved.node.scope
+            );
         const fallbackIcon = getDefaultIconForNode(
           isFolder,
           isMemoryFile(resolved.node) ? resolved.node.format : undefined
@@ -346,12 +371,30 @@ export function activate(context: vscode.ExtensionContext): void {
           return;
         }
 
+        let folderStyle: Partial<FolderMeta> = { ...style };
+        if (isFolder) {
+          const folderMeta = meta as FolderMeta;
+          const labelInput = await vscode.window.showInputBox({
+            prompt: i18n.prompt.folderDisplayLabel(),
+            value: folderMeta.label ?? resolved.node.name,
+          });
+
+          if (labelInput !== undefined) {
+            const trimmed = labelInput.trim();
+            if (trimmed && trimmed !== resolved.node.name) {
+              folderStyle = { ...folderStyle, label: trimmed };
+            } else {
+              folderStyle = { ...folderStyle, label: undefined };
+            }
+          }
+        }
+
         try {
           if (isFolder) {
             await manager.setFolderStyle(
               resolved.node.scope,
               resolved.node.relativePath,
-              style
+              folderStyle
             );
           } else {
             await manager.setFileStyle(
@@ -370,15 +413,17 @@ export function activate(context: vscode.ExtensionContext): void {
       const targetPick = await vscode.window.showQuickPick(
         [
           {
-            label: i18n.import.targetCopilotRepo(),
+            label: i18n.zones.copilotRepo(),
+            detail: i18n.zones.copilotRepoPath(),
             value: 'copilotRepo' as ImportTarget,
           },
           {
-            label: i18n.import.targetSharedGit(),
+            label: i18n.zones.sharedGit(),
             value: 'sharedGit' as ImportTarget,
           },
           {
-            label: i18n.import.targetBoth(),
+            label: i18n.zones.bothTargets(),
+            detail: `${i18n.zones.copilotRepoPath()} + ${manager.getConfig().sharedPath}`,
             value: 'both' as ImportTarget,
           },
         ],
@@ -449,14 +494,73 @@ export function activate(context: vscode.ExtensionContext): void {
         showError(i18n.error.importContext(), error);
       }
     }),
-    vscode.commands.registerCommand('nemo.migrateLegacyStorage', async () => {
-      try {
-        await migrateLegacyStorageWizard(manager);
-        refresh();
-      } catch (error) {
-        showError(i18n.error.migrateLegacy(), error);
+    vscode.commands.registerCommand(
+      'nemo.importExternalFile',
+      async (item?: MemoryTreeItem) => {
+        const node = resolveFileNode(treeView, item);
+        if (!node || node.scope !== 'external') {
+          return;
+        }
+
+        const candidate = await buildImportCandidateForPath(
+          manager,
+          node.relativePath
+        );
+        if (!candidate) {
+          void vscode.window.showWarningMessage(i18n.warning.noWorkspace());
+          return;
+        }
+
+        const targetPick = await vscode.window.showQuickPick(
+          [
+            {
+              label: i18n.zones.copilotRepo(),
+              detail: i18n.zones.copilotRepoPath(),
+              value: 'copilotRepo' as ImportTarget,
+            },
+            {
+              label: i18n.zones.sharedGit(),
+              value: 'sharedGit' as ImportTarget,
+            },
+            {
+              label: i18n.zones.bothTargets(),
+              detail: `${i18n.zones.copilotRepoPath()} + ${manager.getConfig().sharedPath}`,
+              value: 'both' as ImportTarget,
+            },
+          ],
+          { placeHolder: i18n.import.targetTitle() }
+        );
+
+        if (!targetPick) {
+          return;
+        }
+
+        const moveLabel = i18n.command.move();
+        const confirm = await vscode.window.showWarningMessage(
+          i18n.import.confirmMove(1, targetPick.label),
+          { modal: true },
+          moveLabel
+        );
+
+        if (confirm !== moveLabel) {
+          return;
+        }
+
+        try {
+          const result = await importCandidates(
+            manager,
+            [candidate],
+            targetPick.value
+          );
+          refresh();
+          void vscode.window.showInformationMessage(
+            i18n.import.done(result.moved.length, result.skipped.length)
+          );
+        } catch (error) {
+          showError(i18n.error.importContext(), error);
+        }
       }
-    })
+    )
   );
 
   refresh();

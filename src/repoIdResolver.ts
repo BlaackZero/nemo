@@ -1,6 +1,18 @@
 import * as crypto from 'crypto';
 import * as path from 'path';
-import { RepoIdStrategy, RepoIdentity, WorkspaceInfo } from './types';
+
+export type RepoIdStrategy = 'workspaceName' | 'pathHash';
+
+export interface WorkspaceInfo {
+  workspaceName?: string;
+  folderPath: string;
+}
+
+export interface RepoIdentity {
+  repoId: string;
+  displayName: string;
+  workspacePath: string;
+}
 
 const MAX_REPO_ID_LENGTH = 120;
 const PATH_HASH_LENGTH = 12;

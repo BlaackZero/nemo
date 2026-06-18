@@ -63,18 +63,12 @@ suite('memoryTreeProvider', () => {
 
     Object.defineProperty(manager, 'getConfig', {
       value: () => ({
-        storageLocation: 'home' as const,
-        repoIdStrategy: 'workspaceName' as const,
         sharedPath: '.nemo',
       }),
     });
 
-    Object.defineProperty(manager, 'getCurrentRepoIdentity', {
-      value: () => ({
-        repoId: 'test-repo',
-        displayName: 'test-repo',
-        workspacePath: workspaceRoot,
-      }),
+    Object.defineProperty(manager, 'getExtensionGlobalStoragePath', {
+      value: () => path.join(tempRoot, 'global-storage'),
     });
 
     Object.defineProperty(manager, 'getRootForScope', {
@@ -83,6 +77,7 @@ suite('memoryTreeProvider', () => {
           copilotRepo: path.join(tempRoot, 'copilot-repo'),
           copilotUser: path.join(tempRoot, 'copilot-user'),
           sharedGit: path.join(workspaceRoot, '.nemo'),
+          external: workspaceRoot,
         };
         return roots[scope];
       },
@@ -93,15 +88,16 @@ suite('memoryTreeProvider', () => {
     await fs.rm(tempRoot, { recursive: true, force: true });
   });
 
-  test('getChildren at root returns three section headers', async () => {
+  test('getChildren at root returns four section headers', async () => {
     const provider = new MemoryTreeProvider(manager);
 
     const root = await provider.getChildren();
 
-    assert.strictEqual(root.length, 3);
+    assert.strictEqual(root.length, 4);
     assert.strictEqual(root[0]?.contextValue, 'copilotRepoSection');
     assert.strictEqual(root[1]?.contextValue, 'copilotUserSection');
     assert.strictEqual(root[2]?.contextValue, 'sharedGitSection');
+    assert.strictEqual(root[3]?.contextValue, 'externalSection');
     assert.strictEqual(
       root[0]?.collapsibleState,
       vscode.TreeItemCollapsibleState.Collapsed
@@ -123,5 +119,26 @@ suite('memoryTreeProvider', () => {
     assert.ok(folderItem?.node && isMemoryFolder(folderItem.node));
     assert.strictEqual(folderItem.label, 'backend');
     assert.strictEqual(folderItem.description, '/memories/repo/backend');
+  });
+
+  test('getChildren applies copilotRepo folder style overlay', async () => {
+    await manager.createFolder('copilotRepo', 'backend');
+    await manager.setFolderStyle('copilotRepo', 'backend', {
+      label: 'API Backend',
+      icon: 'server',
+      color: 'terminal.ansiGreen',
+    });
+
+    const provider = new MemoryTreeProvider(manager);
+    const root = await provider.getChildren();
+    const repoSection = root.find((item) => item.contextValue === 'copilotRepoSection');
+    assert.ok(repoSection);
+
+    const repoChildren = await provider.getChildren(repoSection);
+    const folderItem = repoChildren[0];
+    assert.ok(folderItem?.node);
+
+    assert.strictEqual(folderItem.label, 'API Backend');
+    assert.strictEqual(folderItem.description, 'backend');
   });
 });

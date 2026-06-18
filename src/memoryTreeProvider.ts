@@ -1,6 +1,6 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { isCopilotChatInstalled } from './copilotMemoryPaths';
+import { isCopilotChatInstalled, scopeSupportsStyles } from './copilotMemoryPaths';
 import { i18n } from './i18n';
 import { MemoryManager, getParentRelativePath } from './memoryManager';
 import { getDefaultIconForNode, resolveNodeIcon } from './nodeStyle';
@@ -9,7 +9,12 @@ import { isMemoryFile, isMemoryFolder, MemoryNode, MemoryScope } from './types';
 
 const TREE_MIME = 'application/vnd.code.tree.nemo';
 
-const SECTION_ORDER: MemoryScope[] = ['copilotRepo', 'copilotUser', 'sharedGit'];
+const SECTION_ORDER: MemoryScope[] = [
+  'copilotRepo',
+  'copilotUser',
+  'sharedGit',
+  'external',
+];
 
 function contextValueForFolder(scope: MemoryScope): string {
   switch (scope) {
@@ -19,6 +24,8 @@ function contextValueForFolder(scope: MemoryScope): string {
       return 'copilotUserMemoryFolder';
     case 'sharedGit':
       return 'sharedGitMemoryFolder';
+    case 'external':
+      return 'externalMemoryFolder';
   }
 }
 
@@ -30,6 +37,8 @@ function contextValueForFile(scope: MemoryScope): string {
       return 'copilotUserMemoryFile';
     case 'sharedGit':
       return 'sharedGitMemoryFile';
+    case 'external':
+      return 'externalMemoryFile';
   }
 }
 
@@ -41,6 +50,8 @@ function contextValueForSection(scope: MemoryScope): string {
       return 'copilotUserSection';
     case 'sharedGit':
       return 'sharedGitSection';
+    case 'external':
+      return 'externalSection';
   }
 }
 
@@ -85,6 +96,8 @@ export class MemoryTreeItem extends vscode.TreeItem {
       this.iconPath = new vscode.ThemeIcon('person');
     } else if (contextValue === 'sharedGitSection') {
       this.iconPath = new vscode.ThemeIcon('source-control');
+    } else if (contextValue === 'externalSection') {
+      this.iconPath = new vscode.ThemeIcon('file-symlink-file');
     } else if (contextValue === 'emptyState') {
       this.iconPath = new vscode.ThemeIcon('info');
     }
@@ -108,6 +121,7 @@ export class MemoryTreeProvider
   constructor(private readonly manager: MemoryManager) {}
 
   refresh(): void {
+    this.manager.invalidateExternalCache();
     this._onDidChangeTreeData.fire();
   }
 
@@ -231,8 +245,10 @@ export class MemoryTreeProvider
     }
 
     const scope = nodes[0]?.scope ?? 'copilotRepo';
-    const manifest = await this.manager.getManifest(scope);
-    const usesManifest = scope === 'sharedGit' && manifest !== undefined;
+    const manifest = scopeSupportsStyles(scope)
+      ? await this.manager.getManifest(scope)
+      : undefined;
+    const usesStyles = scopeSupportsStyles(scope) && manifest !== undefined;
 
     return nodes.map((node) => {
       const virtualPath = this.manager.getVirtualPath(
@@ -243,10 +259,11 @@ export class MemoryTreeProvider
       const tooltip = `${virtualPath}\n${absolutePath}`;
 
       if (isMemoryFolder(node)) {
-        if (usesManifest && manifest) {
+        if (usesStyles && manifest) {
           const meta = this.manager.getFolderMetaForNode(
             node.relativePath,
-            manifest
+            manifest,
+            node.scope
           );
           const iconId = meta.icon ?? 'folder';
           const displayLabel = meta.label ?? node.name;
@@ -281,8 +298,12 @@ export class MemoryTreeProvider
         );
       }
 
-      if (usesManifest && manifest) {
-        const meta = this.manager.getFileMetaForNode(node.relativePath, manifest);
+      if (usesStyles && manifest) {
+        const meta = this.manager.getFileMetaForNode(
+          node.relativePath,
+          manifest,
+          node.scope
+        );
         const fallbackIcon = getDefaultIconForNode(false, node.format);
 
         return new MemoryTreeItem(
@@ -322,7 +343,10 @@ export class MemoryTreeProvider
   ): Promise<void> {
     const nodes = source
       .map((item) => item.node)
-      .filter((node): node is MemoryNode => node !== undefined);
+      .filter(
+        (node): node is MemoryNode =>
+          node !== undefined && node.scope !== 'external'
+      );
 
     if (nodes.length === 0) {
       return;
@@ -346,11 +370,19 @@ export class MemoryTreeProvider
     }
 
     const targetScope = resolveScopeFromItem(target);
+    if (targetScope === 'external') {
+      return;
+    }
+
     const targetFolderRelative = resolveTargetFolderRelative(target);
     let reorderScope: MemoryScope | undefined;
     let reorderParent: string | undefined;
 
     for (const node of nodes) {
+      if (node.scope === 'external') {
+        continue;
+      }
+
       if (node.scope !== targetScope) {
         if (node.scope === 'sharedGit' && targetScope === 'copilotRepo') {
           await syncToCopilotRepo(this.manager, node, false);
@@ -405,6 +437,8 @@ function emptyMessageForScope(scope: MemoryScope): string {
       return i18n.tree.emptyCopilotUser();
     case 'sharedGit':
       return i18n.tree.emptySharedGit();
+    case 'external':
+      return i18n.tree.emptyExternal();
   }
 }
 
@@ -412,13 +446,16 @@ function createSectionItem(scope: MemoryScope): MemoryTreeItem {
   let label: string;
   switch (scope) {
     case 'copilotRepo':
-      label = i18n.tree.copilotRepoSection();
+      label = i18n.zones.copilotRepo();
       break;
     case 'copilotUser':
-      label = i18n.tree.copilotUserSection();
+      label = i18n.zones.copilotUser();
       break;
     case 'sharedGit':
-      label = i18n.tree.sharedGitSection();
+      label = i18n.zones.sharedGit();
+      break;
+    case 'external':
+      label = i18n.zones.external();
       break;
   }
 

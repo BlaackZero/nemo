@@ -23,6 +23,7 @@ function mockScopeRoots(
         copilotRepo: path.join(tempRoot, 'copilot-repo'),
         copilotUser: path.join(tempRoot, 'copilot-user'),
         sharedGit: path.join(workspaceRoot, '.nemo'),
+        external: workspaceRoot,
       };
       return roots[scope];
     },
@@ -94,17 +95,7 @@ suite('memoryImport execute', () => {
 
     Object.defineProperty(manager, 'getConfig', {
       value: () => ({
-        storageLocation: 'home' as const,
-        repoIdStrategy: 'workspaceName' as const,
         sharedPath: '.nemo',
-      }),
-    });
-
-    Object.defineProperty(manager, 'getCurrentRepoIdentity', {
-      value: () => ({
-        repoId: 'test-repo',
-        displayName: 'test-repo',
-        workspacePath: workspaceRoot,
       }),
     });
 
