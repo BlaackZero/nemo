@@ -91,15 +91,18 @@ export interface MemoryManifest {
   folders: Record<string, FolderMeta>;
   files: Record<string, FileMeta>;
   external?: StyleOverlay;
+  /** @deprecated Migrated to extension workspace storage; read only for migration */
   copilotRepo?: StyleOverlay;
 }
 
+/** Style overlay manifest stored in extension storage (project or global scope). */
 export interface GlobalStyleManifest {
   version: 1;
   folders: Record<string, FolderMeta>;
   files: Record<string, FileMeta>;
 }
 
+export const PROJECT_STYLE_MANIFEST_FILENAME = '.nemo-project-styles.json';
 export const GLOBAL_STYLE_MANIFEST_FILENAME = '.nemo-global-styles.json';
 
 export function createEmptyStyleOverlay(): StyleOverlay {
@@ -209,35 +212,32 @@ export function ensureExternalOverlay(manifest: MemoryManifest): StyleOverlay {
   return manifest.external;
 }
 
-export function ensureCopilotRepoOverlay(manifest: MemoryManifest): StyleOverlay {
-  if (!manifest.copilotRepo) {
-    manifest.copilotRepo = createEmptyStyleOverlay();
-  }
-  return manifest.copilotRepo;
-}
-
-export function getCopilotRepoFolderMeta(
-  manifest: MemoryManifest,
+export function getScopeStyleFolderMeta(
+  manifest: GlobalStyleManifest,
   relativePath: string
 ): FolderMeta {
-  return manifest.copilotRepo?.folders[relativePath] ?? {};
+  return manifest.folders[relativePath] ?? {};
 }
 
-export function getCopilotRepoFileMeta(
-  manifest: MemoryManifest,
+export function getScopeStyleFileMeta(
+  manifest: GlobalStyleManifest,
   relativePath: string
 ): FileMeta {
-  return manifest.copilotRepo?.files[relativePath] ?? {};
+  return manifest.files[relativePath] ?? {};
 }
 
-export function getGlobalStyleManifestPath(globalStorageDir: string): string {
-  return path.join(globalStorageDir, GLOBAL_STYLE_MANIFEST_FILENAME);
+export function getScopeStyleManifestPath(
+  storageDir: string,
+  filename: string
+): string {
+  return path.join(storageDir, filename);
 }
 
-export async function readGlobalStyleManifest(
-  globalStorageDir: string
+export async function readScopeStyleManifest(
+  storageDir: string,
+  filename: string
 ): Promise<GlobalStyleManifest> {
-  const manifestPath = getGlobalStyleManifestPath(globalStorageDir);
+  const manifestPath = getScopeStyleManifestPath(storageDir, filename);
 
   try {
     const raw = await fs.readFile(manifestPath, 'utf8');
@@ -252,12 +252,13 @@ export async function readGlobalStyleManifest(
   }
 }
 
-export async function writeGlobalStyleManifest(
-  globalStorageDir: string,
+export async function writeScopeStyleManifest(
+  storageDir: string,
+  filename: string,
   manifest: GlobalStyleManifest
 ): Promise<void> {
-  await fs.mkdir(globalStorageDir, { recursive: true });
-  const manifestPath = getGlobalStyleManifestPath(globalStorageDir);
+  await fs.mkdir(storageDir, { recursive: true });
+  const manifestPath = getScopeStyleManifestPath(storageDir, filename);
   await fs.writeFile(
     manifestPath,
     `${JSON.stringify(manifest, null, 2)}\n`,
@@ -265,35 +266,84 @@ export async function writeGlobalStyleManifest(
   );
 }
 
-export async function ensureGlobalStyleManifest(
-  globalStorageDir: string
+export async function ensureScopeStyleManifest(
+  storageDir: string,
+  filename: string
 ): Promise<GlobalStyleManifest> {
-  await fs.mkdir(globalStorageDir, { recursive: true });
-  const manifestPath = getGlobalStyleManifestPath(globalStorageDir);
+  await fs.mkdir(storageDir, { recursive: true });
+  const manifestPath = getScopeStyleManifestPath(storageDir, filename);
 
   try {
     await fs.access(manifestPath);
   } catch {
     const empty = createEmptyGlobalStyleManifest();
-    await writeGlobalStyleManifest(globalStorageDir, empty);
+    await writeScopeStyleManifest(storageDir, filename, empty);
     return empty;
   }
 
-  return readGlobalStyleManifest(globalStorageDir);
+  return readScopeStyleManifest(storageDir, filename);
 }
 
+export function getProjectStyleManifestPath(storageDir: string): string {
+  return getScopeStyleManifestPath(storageDir, PROJECT_STYLE_MANIFEST_FILENAME);
+}
+
+export async function readProjectStyleManifest(
+  storageDir: string
+): Promise<GlobalStyleManifest> {
+  return readScopeStyleManifest(storageDir, PROJECT_STYLE_MANIFEST_FILENAME);
+}
+
+export async function writeProjectStyleManifest(
+  storageDir: string,
+  manifest: GlobalStyleManifest
+): Promise<void> {
+  await writeScopeStyleManifest(storageDir, PROJECT_STYLE_MANIFEST_FILENAME, manifest);
+}
+
+export async function ensureProjectStyleManifest(
+  storageDir: string
+): Promise<GlobalStyleManifest> {
+  return ensureScopeStyleManifest(storageDir, PROJECT_STYLE_MANIFEST_FILENAME);
+}
+
+export async function readGlobalStyleManifest(
+  globalStorageDir: string
+): Promise<GlobalStyleManifest> {
+  return readScopeStyleManifest(globalStorageDir, GLOBAL_STYLE_MANIFEST_FILENAME);
+}
+
+export async function writeGlobalStyleManifest(
+  globalStorageDir: string,
+  manifest: GlobalStyleManifest
+): Promise<void> {
+  await writeScopeStyleManifest(
+    globalStorageDir,
+    GLOBAL_STYLE_MANIFEST_FILENAME,
+    manifest
+  );
+}
+
+export async function ensureGlobalStyleManifest(
+  globalStorageDir: string
+): Promise<GlobalStyleManifest> {
+  return ensureScopeStyleManifest(globalStorageDir, GLOBAL_STYLE_MANIFEST_FILENAME);
+}
+
+/** @deprecated Use getScopeStyleFolderMeta */
 export function getCopilotUserFolderMeta(
   manifest: GlobalStyleManifest,
   relativePath: string
 ): FolderMeta {
-  return manifest.folders[relativePath] ?? {};
+  return getScopeStyleFolderMeta(manifest, relativePath);
 }
 
+/** @deprecated Use getScopeStyleFileMeta */
 export function getCopilotUserFileMeta(
   manifest: GlobalStyleManifest,
   relativePath: string
 ): FileMeta {
-  return manifest.files[relativePath] ?? {};
+  return getScopeStyleFileMeta(manifest, relativePath);
 }
 
 export function renameOverlayPaths(

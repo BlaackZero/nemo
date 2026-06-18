@@ -2,7 +2,7 @@
 
 *Native Copilot memory manager for VS Code*
 
-[![Beta 0.3.1](https://img.shields.io/badge/beta-0.3.1-orange)](CHANGELOG.md)
+[![Beta 0.3.2](https://img.shields.io/badge/beta-0.3.2-orange)](CHANGELOG.md)
 [![VS Code 1.90+](https://img.shields.io/badge/VS%20Code-1.90%2B-blue)](https://code.visualstudio.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![i18n EN / ES](https://img.shields.io/badge/i18n-EN%20%7C%20ES-lightgrey)](#languages)
@@ -10,7 +10,7 @@
 
 ---
 
-**Nemo beta 0.3.1** manages Copilot native memories plus team-shared Git context and a read-only view of project markdown you can attach to chat without moving files.
+**Nemo beta 0.3.2** manages Copilot native memories plus team-shared Git context and a read-only view of project markdown you can attach to chat without moving files.
 
 ## How it works
 
@@ -25,7 +25,7 @@ Four zones in one sidebar:
 
 Nemo reads and writes Copilot's native paths directly. Copilot Chat continues to use those files through its [memory tool](https://code.visualstudio.com/docs/copilot/agents/memory).
 
-**Inject into Chat** attaches any memory or external markdown file via `github.copilot.chat.attachFile` with clipboard fallbacks.
+**Inject into Chat** attaches memory files via native Copilot commands when possible. Project/Global memory injects content directly when outside the workspace. Use **Inject folder into Chat** on folders for native folder attach (Shared/External) or multi-file attach with content fallback.
 
 ## When to use each zone
 
@@ -58,9 +58,9 @@ Right-click any folder or file in **Project Memory**, **Global Memory**, **Share
 
 | Feature | Project Memory | Global Memory | Shared (Git) | External |
 |---------|----------------|---------------|--------------|----------|
-| Folder color & icon | `.nemo.json` → `copilotRepo.folders` | Extension globalStorage → `.nemo-global-styles.json` | `.nemo.json` → `folders` | `.nemo.json` → `external.folders` |
-| Folder display name | `copilotRepo.folders.*.label` | `folders.*.label` (global file) | `folders.*.label` | `external.folders.*.label` |
-| File color & icon | `copilotRepo.files` | `files` (global file) | `files` | `external.files` |
+| Folder color & icon | Extension workspaceStorage → `.nemo-project-styles.json` | Extension globalStorage → `.nemo-global-styles.json` | `.nemo.json` → `folders` | `.nemo.json` → `external.folders` |
+| Folder display name | `folders.*.label` (project file) | `folders.*.label` (global file) | `folders.*.label` | `external.folders.*.label` |
+| File color & icon | `files` (project file) | `files` (global file) | `files` | `external.files` |
 | Drag-and-drop reorder | Shared folders/files only | — | Yes | Planned |
 
 Pick **No color** or **Default icon** to reset custom styles. After color/icon, folders prompt for an optional display name.
@@ -78,9 +78,11 @@ Styles are overlays only — Copilot memory files on disk are unchanged.
 
 | Step | Behavior |
 |------|----------|
-| 1 | Attach memory file via Copilot's native attach command |
-| 2 | Insert a short prompt asking Copilot to use the attachment |
-| 3 | Fallback: paste full content or copy to clipboard |
+| 1 | **Workspace files** — attach via `workbench.action.chat.attachFile` |
+| 2 | **Project/Global files** — insert content in chat (reliable without editor focus) |
+| 3 | **Workspace folders** — attach via `workbench.action.chat.attachFolder` |
+| 4 | **Other folders** — attach all memory files, or concatenate content |
+| 5 | **Last resort** — copy content to clipboard |
 
 ## Commands
 
@@ -88,7 +90,8 @@ Styles are overlays only — Copilot memory files on disk are unchanged.
 |---------|--------------|
 | **New memory / folder** | Create under Project, Global, or Shared (Git) |
 | **Edit memory** | Open the file in the editor |
-| **Inject into Chat** | Attach context in Copilot Chat |
+| **Inject into Chat** | Attach a memory file in Copilot Chat |
+| **Inject folder into Chat** | Attach all files in a folder (native folder attach when possible) |
 | **Copy to Project memory** | Copy Shared (Git) → `/memories/repo/` |
 | **Copy to Shared (Git)** | Copy Project or Global memory → `.nemo/` |
 | **Import to memory** | Scan and import scattered markdown |
@@ -104,7 +107,7 @@ Styles are overlays only — Copilot memory files on disk are unchanged.
 | Project / Global memory | Yes | Yes* | Limited |
 | Inject into Chat | Yes | Yes* | Clipboard fallback |
 
-Install via **Extensions: Install from VSIX…** (`nemo-context-0.3.1.vsix`).
+Install via **Extensions: Install from VSIX…** (`nemo-context-0.3.2.vsix`).
 
 ## Configuration
 

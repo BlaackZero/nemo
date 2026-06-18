@@ -5,18 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.2] - 2026-06-18
+
+### Added
+
+- **`nemo.injectFolder`** — inject an entire memory folder into Copilot Chat (native folder attach when under workspace; multi-file attach or content fallback otherwise).
+
+### Fixed
+
+- **Inject into Chat** works without the file open in the editor; Project/Global memory uses reliable content injection instead of silent attach failures.
+- Attach pipeline tries `workbench.action.chat.attachFile` before `github.copilot.chat.attachFile`.
+- Clear warning when no tree item is selected for inject/edit commands.
+
+### Changed
+
+- Inject file/folder commands appear in the contextual menu (`2_sync`) in addition to inline tree actions.
+
 ## [0.3.1] - 2026-06-18
 
 ### Added
 
 - **Color and icon** for **Project Memory** and **Global Memory** via style overlays (Copilot files unchanged).
-- Project Memory styles stored in `.nemo.json` under `copilotRepo`.
-- Global Memory styles stored in extension globalStorage (`.nemo-global-styles.json`).
+- Project Memory styles stored in extension **workspaceStorage** (`.nemo-project-styles.json`).
+- Global Memory styles stored in extension **globalStorage** (`.nemo-global-styles.json`).
 
 ### Changed
 
 - Style picker now available for all four tree sections (Project, Global, Shared, External).
 - Folder rename/delete/move in Copilot scopes keeps style overlay paths in sync.
+- Legacy `copilotRepo` entries in `.nemo.json` are migrated automatically to extension workspace storage.
 
 ## [0.3.0] - 2026-06-18
 

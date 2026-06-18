@@ -7,6 +7,7 @@
   "command.createFolder.title": "Nueva carpeta",
   "command.editMemory.title": "Editar memoria",
   "command.injectMemory.title": "Inyectar en Chat",
+  "command.injectFolder.title": "Inyectar carpeta en Chat",
   "command.syncToCopilotRepo.title": "Copiar a memoria de proyecto",
   "command.promoteToGit.title": "Copiar a Compartido (Git)",
   "command.openSharedFolder.title": "Abrir carpeta compartida",

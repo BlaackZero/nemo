@@ -92,6 +92,8 @@ export const i18n = {
     confirmDeleteMemory: (name: string) => t('Delete "{0}"?', name),
     confirmDeleteFolder: (name: string) =>
       t('Delete folder "{0}" and all its contents?', name),
+    selectTreeItem: () => t('Select a memory item in the Nemo tree.'),
+    emptyFolderInject: () => t('This folder has no memory files to inject.'),
   },
   info: {
     syncedToCopilot: () => t('Memory copied to Project memory.'),
@@ -103,6 +105,10 @@ export const i18n = {
       t('Content inserted in Copilot Chat. Edit and send when ready.'),
     copiedToClipboard: () =>
       t('Copilot Chat unavailable. Content copied to clipboard.'),
+    folderAttachedToChat: () =>
+      t('Folder attached in Copilot Chat. Edit and send when ready.'),
+    folderContentInserted: () =>
+      t('Folder content inserted in Copilot Chat. Edit and send when ready.'),
   },
   error: {
     actionFailed: (action: string, message: string) =>
@@ -116,6 +122,8 @@ export const i18n = {
     rename: () => t('rename'),
     setStyle: () => t('apply style'),
     importContext: () => t('import to memory'),
+    injectMemory: () => t('inject into Chat'),
+    injectFolder: () => t('inject folder into Chat'),
     noWorkspace: () => t('No workspace folder is open.'),
     invalidSharedPath: () =>
       t('Shared path must be relative to the workspace and cannot contain "..".'),
@@ -140,6 +148,8 @@ export const i18n = {
     injectionStart: (fileName: string) => t('--- Nemo: {0} ---', fileName),
     injectionEnd: () => t('--- End Nemo ---'),
     injectionOutro: () => t('Answer my question using that context.'),
+    folderInjectionOutro: (folderName: string) =>
+      t('Answer my question using the "{0}" folder context.', folderName),
   },
   import: {
     scanning: () => t('Scanning markdown sources…'),

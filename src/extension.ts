@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { isCopilotScope, scopeSupportsStyles } from './copilotMemoryPaths';
 import { i18n } from './i18n';
-import { injectMemoryIntoChat } from './chatIntegration';
+import { injectFolderIntoChat, injectMemoryIntoChat } from './chatIntegration';
 import { importCandidates } from './memoryImport';
 import {
   buildImportCandidateForPath,
@@ -151,6 +151,7 @@ export function activate(context: vscode.ExtensionContext): void {
       async (item?: MemoryTreeItem) => {
         const node = resolveFileNode(treeView, item);
         if (!node || !isMemoryFile(node)) {
+          void vscode.window.showWarningMessage(i18n.warning.selectTreeItem());
           return;
         }
 
@@ -163,10 +164,31 @@ export function activate(context: vscode.ExtensionContext): void {
       async (item?: MemoryTreeItem) => {
         const node = resolveFileNode(treeView, item);
         if (!node || !isMemoryFile(node)) {
+          void vscode.window.showWarningMessage(i18n.warning.selectTreeItem());
           return;
         }
 
-        await injectMemoryIntoChat(manager, node);
+        try {
+          await injectMemoryIntoChat(manager, node);
+        } catch (error) {
+          showError(i18n.error.injectMemory(), error);
+        }
+      }
+    ),
+    vscode.commands.registerCommand(
+      'nemo.injectFolder',
+      async (item?: MemoryTreeItem) => {
+        const node = resolveFolderNode(treeView, item);
+        if (!node || !isMemoryFolder(node)) {
+          void vscode.window.showWarningMessage(i18n.warning.selectTreeItem());
+          return;
+        }
+
+        try {
+          await injectFolderIntoChat(manager, node);
+        } catch (error) {
+          showError(i18n.error.injectFolder(), error);
+        }
       }
     ),
     vscode.commands.registerCommand(
@@ -499,6 +521,9 @@ export function activate(context: vscode.ExtensionContext): void {
       async (item?: MemoryTreeItem) => {
         const node = resolveFileNode(treeView, item);
         if (!node || node.scope !== 'external') {
+          if (!node) {
+            void vscode.window.showWarningMessage(i18n.warning.selectTreeItem());
+          }
           return;
         }
 

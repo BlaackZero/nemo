@@ -36,6 +36,10 @@ suite('memoryCopilotStyles', () => {
       value: () => globalStorageDir,
     });
 
+    Object.defineProperty(manager, 'getExtensionWorkspaceStoragePath', {
+      value: () => path.join(tempRoot, 'ws-storage', 'nemo-context'),
+    });
+
     Object.defineProperty(manager, 'getRootForScope', {
       value: (scope: MemoryScope) => {
         const roots: Record<MemoryScope, string> = {

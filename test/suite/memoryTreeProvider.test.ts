@@ -71,6 +71,10 @@ suite('memoryTreeProvider', () => {
       value: () => path.join(tempRoot, 'global-storage'),
     });
 
+    Object.defineProperty(manager, 'getExtensionWorkspaceStoragePath', {
+      value: () => path.join(tempRoot, 'ws-storage', 'nemo-context'),
+    });
+
     Object.defineProperty(manager, 'getRootForScope', {
       value: (scope: MemoryScope) => {
         const roots: Record<MemoryScope, string> = {

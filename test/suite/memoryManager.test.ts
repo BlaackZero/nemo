@@ -6,7 +6,7 @@ import {
   compareByOrder,
   createEmptyManifest,
   ensureManifest,
-  MemoryManifest,
+  readManifest,
   renameManifestPaths,
   updateSiblingOrder,
 } from '../../src/memoryManifest';
@@ -98,6 +98,10 @@ suite('memoryManager file operations', () => {
 
     Object.defineProperty(manager, 'getExtensionGlobalStoragePath', {
       value: () => path.join(tempRoot, 'global-storage'),
+    });
+
+    Object.defineProperty(manager, 'getExtensionWorkspaceStoragePath', {
+      value: () => path.join(tempRoot, 'ws-storage', 'nemo-context'),
     });
 
     Object.defineProperty(manager, 'getRootForScope', {
@@ -248,7 +252,9 @@ suite('memoryManager file operations', () => {
     assert.deepStrictEqual(manifest?.folders.backend, {});
   });
 
-  test('setFolderStyle persists copilotRepo overlay in workspace manifest', async () => {
+  test('setFolderStyle persists copilotRepo overlay in extension workspace storage', async () => {
+    const workspaceStorage = path.join(tempRoot, 'ws-storage', 'nemo-context');
+
     await manager.createFolder('copilotRepo', 'backend');
 
     await manager.setFolderStyle('copilotRepo', 'backend', {
@@ -257,10 +263,17 @@ suite('memoryManager file operations', () => {
       label: 'API Backend',
     });
 
-    const manifest = (await manager.getManifest('copilotRepo')) as MemoryManifest;
-    assert.ok(manifest.copilotRepo);
-    assert.strictEqual(manifest.copilotRepo.folders.backend?.icon, 'server');
-    assert.strictEqual(manifest.copilotRepo.folders.backend?.label, 'API Backend');
+    const manifest = await manager.getManifest('copilotRepo');
+    assert.ok(manifest);
+    assert.strictEqual(manifest.folders.backend?.icon, 'server');
+    assert.strictEqual(manifest.folders.backend?.label, 'API Backend');
+
+    const workspaceManifest = await readManifest(path.join(workspaceRoot, '.nemo'));
+    assert.strictEqual(workspaceManifest.copilotRepo, undefined);
+
+    await fs.access(
+      path.join(workspaceStorage, '.nemo-project-styles.json')
+    );
   });
 
   test('renameNode moves copilotRepo style overlay paths', async () => {
@@ -269,9 +282,9 @@ suite('memoryManager file operations', () => {
 
     await manager.renameNode('copilotRepo', 'backend', 'api', true);
 
-    const manifest = (await manager.getManifest('copilotRepo')) as MemoryManifest;
-    assert.strictEqual(manifest.copilotRepo?.folders.api?.icon, 'server');
-    assert.strictEqual(manifest.copilotRepo?.folders.backend, undefined);
+    const manifest = await manager.getManifest('copilotRepo');
+    assert.strictEqual(manifest?.folders.api?.icon, 'server');
+    assert.strictEqual(manifest?.folders.backend, undefined);
   });
 
   test('deleteMemory removes copilotRepo file style overlay', async () => {
@@ -283,7 +296,60 @@ suite('memoryManager file operations', () => {
 
     await manager.deleteMemory('copilotRepo', created.filePath, created.relativePath);
 
-    const manifest = (await manager.getManifest('copilotRepo')) as MemoryManifest;
-    assert.strictEqual(manifest.copilotRepo?.files[created.relativePath], undefined);
+    const manifest = await manager.getManifest('copilotRepo');
+    assert.strictEqual(manifest?.files[created.relativePath], undefined);
+  });
+
+  test('migrates legacy copilotRepo styles from workspace manifest', async () => {
+    const sharedDir = path.join(workspaceRoot, '.nemo');
+    await fs.mkdir(sharedDir, { recursive: true });
+    await fs.writeFile(
+      path.join(sharedDir, '.nemo.json'),
+      `${JSON.stringify(
+        {
+          version: 1,
+          folders: {},
+          files: {},
+          copilotRepo: {
+            folders: { legacy: { icon: 'book', label: 'Old API' } },
+            files: {},
+          },
+        },
+        null,
+        2
+      )}\n`,
+      'utf8'
+    );
+
+    const freshManager = new MemoryManager({
+      globalStorageUri: { fsPath: path.join(tempRoot, 'global-storage') },
+    } as never);
+
+    Object.defineProperty(freshManager, 'getConfig', {
+      value: () => ({ sharedPath: '.nemo' }),
+    });
+    Object.defineProperty(freshManager, 'getExtensionGlobalStoragePath', {
+      value: () => path.join(tempRoot, 'global-storage'),
+    });
+    Object.defineProperty(freshManager, 'getExtensionWorkspaceStoragePath', {
+      value: () => path.join(tempRoot, 'ws-storage', 'nemo-context'),
+    });
+    Object.defineProperty(freshManager, 'getRootForScope', {
+      value: (scope: MemoryScope) => {
+        const roots: Record<MemoryScope, string> = {
+          copilotRepo: path.join(tempRoot, 'copilot-repo'),
+          copilotUser: path.join(tempRoot, 'copilot-user'),
+          sharedGit: path.join(workspaceRoot, '.nemo'),
+          external: workspaceRoot,
+        };
+        return roots[scope];
+      },
+    });
+
+    const manifest = await freshManager.getManifest('copilotRepo');
+    assert.strictEqual(manifest?.folders.legacy?.icon, 'book');
+
+    const workspaceManifest = await readManifest(sharedDir);
+    assert.strictEqual(workspaceManifest.copilotRepo, undefined);
   });
 });
