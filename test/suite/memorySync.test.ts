@@ -3,7 +3,7 @@ import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 import { MemoryManager } from '../../src/memoryManager';
-import { promoteToGit, syncToCopilotRepo } from '../../src/memorySync';
+import { moveNodeToScope, promoteToGit, syncToCopilotRepo } from '../../src/memorySync';
 import { MemoryScope, isMemoryFile, isMemoryFolder } from '../../src/types';
 
 function mockScopeRoots(
@@ -107,5 +107,69 @@ suite('memorySync', () => {
       path.join(manager.getRootForScope('sharedGit') ?? '', 'backend', 'rules.md')
     );
     await fs.access(repoFile.filePath);
+  });
+
+  test('moveNodeToScope moves copilotRepo file into copilotUser', async () => {
+    const created = await manager.createMemory('copilotRepo', 'team-rules', 'markdown');
+
+    const moved = await moveNodeToScope(manager, created, 'copilotUser');
+    assert.strictEqual(moved.scope, 'copilotUser');
+    assert.strictEqual(moved.relativePath, 'team-rules.md');
+
+    await assert.rejects(() => fs.access(created.filePath));
+    if (!isMemoryFile(moved)) {
+      assert.fail('Expected global memory file');
+    }
+    await fs.access(moved.filePath);
+
+    const projectChildren = await manager.listChildren('copilotRepo');
+    assert.strictEqual(projectChildren.length, 0);
+
+    const globalChildren = await manager.listChildren('copilotUser');
+    assert.strictEqual(globalChildren.length, 1);
+  });
+
+  test('moveNodeToScope moves into target folder', async () => {
+    await manager.createFolder('copilotUser', 'personal');
+    const created = await manager.createMemory('copilotRepo', 'notes', 'markdown');
+
+    const moved = await moveNodeToScope(
+      manager,
+      created,
+      'copilotUser',
+      'personal'
+    );
+
+    assert.strictEqual(moved.relativePath, 'personal/notes.md');
+    await assert.rejects(() => fs.access(created.filePath));
+    if (!isMemoryFile(moved)) {
+      assert.fail('Expected global memory file');
+    }
+    await fs.access(moved.filePath);
+  });
+
+  test('moveNodeToScope moves sharedGit into copilotRepo and removes source', async () => {
+    const created = await manager.createMemory('sharedGit', 'team-rules', 'markdown');
+
+    const moved = await moveNodeToScope(manager, created, 'copilotRepo', undefined, true);
+    assert.strictEqual(moved.scope, 'copilotRepo');
+
+    await assert.rejects(() => fs.access(created.filePath));
+    if (!isMemoryFile(moved)) {
+      assert.fail('Expected project memory file');
+    }
+    await fs.access(moved.filePath);
+
+    const sharedChildren = await manager.listChildren('sharedGit');
+    assert.strictEqual(sharedChildren.length, 0);
+  });
+
+  test('moveNodeToScope rejects external scope', async () => {
+    const created = await manager.createMemory('copilotRepo', 'rules', 'markdown');
+
+    await assert.rejects(
+      () => moveNodeToScope(manager, created, 'external'),
+      /cannot be moved/
+    );
   });
 });

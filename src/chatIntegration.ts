@@ -1,5 +1,5 @@
+import * as fs from 'fs/promises';
 import * as vscode from 'vscode';
-import { isCopilotScope } from './copilotMemoryPaths';
 import { i18n } from './i18n';
 import { MemoryManager } from './memoryManager';
 import { MemoryFile, MemoryFolder } from './types';
@@ -8,6 +8,8 @@ export const WORKBENCH_ATTACH_FILE = 'workbench.action.chat.attachFile';
 export const WORKBENCH_ATTACH_FOLDER = 'workbench.action.chat.attachFolder';
 export const COPILOT_ATTACH_COMMAND = 'github.copilot.chat.attachFile';
 export const CHAT_OPEN_COMMAND = 'workbench.action.chat.open';
+
+const CHAT_READY_DELAY_MS = 75;
 
 export type CommandExecutor = (
   command: string,
@@ -18,12 +20,13 @@ export function isUriUnderWorkspace(uri: vscode.Uri): boolean {
   return vscode.workspace.getWorkspaceFolder(uri) !== undefined;
 }
 
+/** @deprecated Use isUriUnderWorkspace for docs; attach is attempted for all local files. */
 export function shouldAttachFileDirectly(memory: MemoryFile): boolean {
-  if (isCopilotScope(memory.scope)) {
-    return false;
-  }
-
   return isUriUnderWorkspace(vscode.Uri.file(memory.filePath));
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function tryExecuteCommand(
@@ -33,6 +36,24 @@ async function tryExecuteCommand(
 ): Promise<boolean> {
   try {
     await executeCommand(command, ...args);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function ensureChatVisible(
+  executeCommand: CommandExecutor = vscode.commands.executeCommand.bind(
+    vscode.commands
+  )
+): Promise<void> {
+  await executeCommand(CHAT_OPEN_COMMAND);
+  await delay(CHAT_READY_DELAY_MS);
+}
+
+async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    await fs.access(filePath);
     return true;
   } catch {
     return false;
@@ -49,11 +70,7 @@ export async function attachFilesToChat(
     return false;
   }
 
-  if (
-    await tryExecuteCommand(executeCommand, WORKBENCH_ATTACH_FILE, ...fileUris)
-  ) {
-    return true;
-  }
+  await ensureChatVisible(executeCommand);
 
   if (
     await tryExecuteCommand(executeCommand, COPILOT_ATTACH_COMMAND, ...fileUris)
@@ -61,11 +78,17 @@ export async function attachFilesToChat(
     return true;
   }
 
+  if (
+    await tryExecuteCommand(executeCommand, WORKBENCH_ATTACH_FILE, ...fileUris)
+  ) {
+    return true;
+  }
+
   for (const uri of fileUris) {
-    if (await tryExecuteCommand(executeCommand, WORKBENCH_ATTACH_FILE, uri)) {
+    if (await tryExecuteCommand(executeCommand, COPILOT_ATTACH_COMMAND, uri)) {
       continue;
     }
-    if (await tryExecuteCommand(executeCommand, COPILOT_ATTACH_COMMAND, uri)) {
+    if (await tryExecuteCommand(executeCommand, WORKBENCH_ATTACH_FILE, uri)) {
       continue;
     }
     return false;
@@ -89,6 +112,7 @@ export async function attachFolderToChat(
     vscode.commands
   )
 ): Promise<boolean> {
+  await ensureChatVisible(executeCommand);
   return tryExecuteCommand(executeCommand, WORKBENCH_ATTACH_FOLDER, folderUri);
 }
 
@@ -156,10 +180,9 @@ export async function injectMemoryIntoChat(
 ): Promise<void> {
   const fileUri = vscode.Uri.file(memory.filePath);
 
-  if (shouldAttachFileDirectly(memory)) {
+  if (await fileExists(memory.filePath)) {
     const attached = await attachMemoryToChat(fileUri, executeCommand);
     if (attached) {
-      await openChatWithShortPrompt(executeCommand);
       void vscode.window.showInformationMessage(i18n.info.attachedToChat());
       return;
     }
@@ -195,10 +218,9 @@ export async function injectFolderIntoChat(
 
   const folderUri = vscode.Uri.file(folder.absolutePath);
 
-  if (isUriUnderWorkspace(folderUri)) {
+  if (isUriUnderWorkspace(folderUri) && (await fileExists(folder.absolutePath))) {
     const attached = await attachFolderToChat(folderUri, executeCommand);
     if (attached) {
-      await openChatWithShortPrompt(executeCommand);
       void vscode.window.showInformationMessage(i18n.info.folderAttachedToChat());
       return;
     }
@@ -207,7 +229,6 @@ export async function injectFolderIntoChat(
   const fileUris = files.map((file) => vscode.Uri.file(file.filePath));
   const attached = await attachFilesToChat(fileUris, executeCommand);
   if (attached) {
-    await openChatWithShortPrompt(executeCommand);
     void vscode.window.showInformationMessage(i18n.info.folderAttachedToChat());
     return;
   }

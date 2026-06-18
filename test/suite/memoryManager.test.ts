@@ -177,6 +177,21 @@ suite('memoryManager file operations', () => {
     assert.strictEqual(files[0]?.name, 'valid.md');
   });
 
+  test('read-only tree paths do not create workspace .nemo store', async () => {
+    const nemoDir = path.join(workspaceRoot, '.nemo');
+    const nemoManifest = path.join(nemoDir, '.nemo.json');
+
+    await manager.createMemory('copilotRepo', 'rules', 'markdown');
+    await manager.listChildren('copilotRepo');
+    await manager.getManifest('copilotRepo');
+    await manager.listChildren('sharedGit');
+    await manager.listChildren('external');
+    await manager.getManifest('external');
+
+    await assert.rejects(() => fs.access(nemoDir));
+    await assert.rejects(() => fs.access(nemoManifest));
+  });
+
   test('moveNode moves file into folder within scope', async () => {
     await manager.createFolder('copilotRepo', 'backend');
     const created = await manager.createMemory('copilotRepo', 'reglas', 'markdown');

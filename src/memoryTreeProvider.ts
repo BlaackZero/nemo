@@ -4,7 +4,6 @@ import { isCopilotChatInstalled, scopeSupportsStyles } from './copilotMemoryPath
 import { i18n } from './i18n';
 import { MemoryManager, getParentRelativePath } from './memoryManager';
 import { getDefaultIconForNode, resolveNodeIcon } from './nodeStyle';
-import { promoteToGit, syncToCopilotRepo } from './memorySync';
 import { isMemoryFile, isMemoryFolder, MemoryNode, MemoryScope } from './types';
 
 const TREE_MIME = 'application/vnd.code.tree.nemo';
@@ -369,8 +368,8 @@ export class MemoryTreeProvider
       return;
     }
 
-    const targetScope = resolveScopeFromItem(target);
-    if (targetScope === 'external') {
+    const targetScope = resolveDropTargetScope(target);
+    if (!targetScope || targetScope === 'external') {
       return;
     }
 
@@ -378,43 +377,56 @@ export class MemoryTreeProvider
     let reorderScope: MemoryScope | undefined;
     let reorderParent: string | undefined;
 
-    for (const node of nodes) {
-      if (node.scope === 'external') {
-        continue;
-      }
-
-      if (node.scope !== targetScope) {
-        if (node.scope === 'sharedGit' && targetScope === 'copilotRepo') {
-          await syncToCopilotRepo(this.manager, node, false);
-        } else if (
-          (node.scope === 'copilotRepo' || node.scope === 'copilotUser') &&
-          targetScope === 'sharedGit'
-        ) {
-          await promoteToGit(this.manager, node, false);
+    try {
+      for (const node of nodes) {
+        if (node.scope === 'external') {
+          continue;
         }
-        continue;
-      }
 
-      if (
-        isMemoryFolder(node) &&
-        targetFolderRelative &&
-        this.manager.isDescendantPath(node.relativePath, targetFolderRelative)
-      ) {
-        continue;
-      }
+        if (node.scope !== targetScope) {
+          if (
+            isMemoryFolder(node) &&
+            targetFolderRelative &&
+            this.manager.isDescendantPath(node.relativePath, targetFolderRelative)
+          ) {
+            continue;
+          }
 
-      await this.manager.moveNode(
-        node.scope,
-        node.relativePath,
-        targetFolderRelative,
-        isMemoryFolder(node)
+          await this.manager.moveNodeToScope(
+            node,
+            targetScope,
+            targetFolderRelative,
+            true
+          );
+          continue;
+        }
+
+        if (
+          isMemoryFolder(node) &&
+          targetFolderRelative &&
+          this.manager.isDescendantPath(node.relativePath, targetFolderRelative)
+        ) {
+          continue;
+        }
+
+        await this.manager.moveNode(
+          node.scope,
+          node.relativePath,
+          targetFolderRelative,
+          isMemoryFolder(node)
+        );
+
+        reorderScope = node.scope;
+        reorderParent =
+          target?.node && isMemoryFile(target.node)
+            ? getParentRelativePath(target.node.relativePath)
+            : targetFolderRelative;
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      void vscode.window.showErrorMessage(
+        i18n.error.actionFailed(i18n.command.move(), message)
       );
-
-      reorderScope = node.scope;
-      reorderParent =
-        target?.node && isMemoryFile(target.node)
-          ? getParentRelativePath(target.node.relativePath)
-          : targetFolderRelative;
     }
 
     if (reorderScope === 'sharedGit') {
@@ -478,6 +490,20 @@ export function resolveScopeFromItem(item?: MemoryTreeItem): MemoryScope {
   }
 
   return 'copilotRepo';
+}
+
+export function resolveDropTargetScope(
+  item?: MemoryTreeItem
+): MemoryScope | undefined {
+  if (item?.node) {
+    return item.node.scope;
+  }
+
+  if (item?.sectionScope) {
+    return item.sectionScope;
+  }
+
+  return undefined;
 }
 
 function resolveTargetFolderRelative(

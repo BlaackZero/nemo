@@ -24,6 +24,7 @@ import {
   getScopeStyleFileMeta,
   getScopeStyleFolderMeta,
   GlobalStyleManifest,
+  manifestExists,
   MemoryManifest,
   mergeFileMeta,
   mergeFolderMeta,
@@ -34,16 +35,20 @@ import {
   renameManifestPaths,
   renameOverlayPaths,
   RESERVED_FILENAMES,
+  StyleOverlay,
   transferManifestPaths,
+  transferOverlayPaths,
   updateSiblingOrder,
   writeGlobalStyleManifest,
   writeManifest,
   writeProjectStyleManifest,
 } from './memoryManifest';
 import { scanExternalMarkdownPaths } from './memoryImportScan';
+import { moveNodeToScope as moveNodeToScopeSync } from './memorySync';
 import {
   getRootForScope,
   getSharedGitRoot,
+  getWorkspaceFolderPath,
   readConfigFromWorkspace,
 } from './memoryStorePaths';
 import { replaceInvalidFileNameChars } from './repoIdResolver';
@@ -125,12 +130,11 @@ export class MemoryManager {
 
   async ensureScopeDir(scope: MemoryScope): Promise<string> {
     if (scope === 'external') {
-      const sharedRoot = this.getSharedGitDir();
-      if (!sharedRoot) {
+      const workspaceRoot = getWorkspaceFolderPath();
+      if (!workspaceRoot) {
         throw new Error(i18n.error.noWorkspace());
       }
-      await ensureManifest(sharedRoot);
-      return sharedRoot;
+      return workspaceRoot;
     }
 
     const dir = this.getRootForScope(scope);
@@ -178,7 +182,7 @@ export class MemoryManager {
       return undefined;
     }
 
-    return ensureManifest(rootDir);
+    return readManifest(rootDir);
   }
 
   async saveManifest(
@@ -257,7 +261,7 @@ export class MemoryManager {
 
     const parentRelative = this.normalizeRelativePath(parentRelativePath);
     const manifest = scopeUsesManifest(scope)
-      ? await ensureManifest(rootDir)
+      ? await readManifest(rootDir)
       : createEmptyManifest();
 
     try {
@@ -352,7 +356,9 @@ export class MemoryManager {
     const parentRelative = this.normalizeRelativePath(parentRelativePath);
     const paths = await this.getExternalPaths();
     const sharedRoot = this.getSharedGitDir();
-    const manifest = sharedRoot ? await ensureManifest(sharedRoot) : createEmptyManifest();
+    const manifest = sharedRoot
+      ? await readManifest(sharedRoot)
+      : createEmptyManifest();
 
     const folderNames = new Set<string>();
     const files: MemoryFile[] = [];
@@ -834,6 +840,15 @@ export class MemoryManager {
     }
   }
 
+  async moveNodeToScope(
+    node: MemoryNode,
+    toScope: MemoryScope,
+    targetFolderRelative?: string,
+    move = true
+  ): Promise<MemoryNode> {
+    return moveNodeToScopeSync(this, node, toScope, targetFolderRelative, move);
+  }
+
   async transferManifestEntry(
     fromScope: MemoryScope,
     toScope: MemoryScope,
@@ -853,6 +868,95 @@ export class MemoryManager {
 
     await writeManifest(fromRoot, fromManifest);
     await writeManifest(toRoot, toManifest);
+  }
+
+  async transferCopilotStyleOverlay(
+    fromScope: MemoryScope,
+    toScope: MemoryScope,
+    fromRelative: string,
+    toRelative: string,
+    isFolder: boolean,
+    move: boolean
+  ): Promise<void> {
+    const fromIsCopilot =
+      fromScope === 'copilotRepo' || fromScope === 'copilotUser';
+    const toIsCopilot = toScope === 'copilotRepo' || toScope === 'copilotUser';
+
+    if (!fromIsCopilot && !toIsCopilot) {
+      return;
+    }
+
+    let sourceOverlay: StyleOverlay | undefined;
+    let targetOverlay: StyleOverlay | undefined;
+    let sourceManifest: GlobalStyleManifest | undefined;
+    let targetManifest: GlobalStyleManifest | undefined;
+
+    if (fromScope === 'copilotRepo') {
+      sourceManifest = await this.ensureProjectStyleManifestWithMigration();
+      sourceOverlay = {
+        folders: sourceManifest.folders,
+        files: sourceManifest.files,
+      };
+    } else if (fromScope === 'copilotUser') {
+      const globalDir = this.getExtensionGlobalStoragePath();
+      sourceManifest = await readGlobalStyleManifest(globalDir);
+      sourceOverlay = {
+        folders: sourceManifest.folders,
+        files: sourceManifest.files,
+      };
+    }
+
+    if (toScope === 'copilotRepo') {
+      targetManifest = await this.ensureProjectStyleManifestWithMigration();
+      targetOverlay = {
+        folders: targetManifest.folders,
+        files: targetManifest.files,
+      };
+    } else if (toScope === 'copilotUser') {
+      const globalDir = this.getExtensionGlobalStoragePath();
+      targetManifest = await readGlobalStyleManifest(globalDir);
+      targetOverlay = {
+        folders: targetManifest.folders,
+        files: targetManifest.files,
+      };
+    }
+
+    if (sourceOverlay && targetOverlay && sourceOverlay !== targetOverlay) {
+      transferOverlayPaths(
+        sourceOverlay,
+        targetOverlay,
+        fromRelative,
+        toRelative,
+        isFolder,
+        move
+      );
+    } else if (sourceOverlay && move) {
+      removeOverlayPaths(sourceOverlay, fromRelative, isFolder);
+    }
+
+    if (sourceManifest && fromScope === 'copilotRepo') {
+      await this.writeProjectStyleManifest(sourceManifest);
+    } else if (sourceManifest && fromScope === 'copilotUser') {
+      await writeGlobalStyleManifest(
+        this.getExtensionGlobalStoragePath(),
+        sourceManifest
+      );
+    }
+
+    if (
+      targetManifest &&
+      toScope !== fromScope &&
+      (toScope === 'copilotRepo' || toScope === 'copilotUser')
+    ) {
+      if (toScope === 'copilotRepo') {
+        await this.writeProjectStyleManifest(targetManifest);
+      } else {
+        await writeGlobalStyleManifest(
+          this.getExtensionGlobalStoragePath(),
+          targetManifest
+        );
+      }
+    }
   }
 
   formatForChat(raw: string, format: MemoryFormat): string {
@@ -960,7 +1064,7 @@ export class MemoryManager {
     target: GlobalStyleManifest
   ): Promise<void> {
     const sharedRoot = this.getRootForScope('sharedGit');
-    if (!sharedRoot) {
+    if (!sharedRoot || !(await manifestExists(sharedRoot))) {
       return;
     }
 

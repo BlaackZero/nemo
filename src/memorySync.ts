@@ -8,12 +8,20 @@ import {
 } from './memoryManager';
 import { isMemoryFolder, MemoryNode, MemoryScope } from './types';
 
+const MUTABLE_SCOPES = new Set<MemoryScope>([
+  'copilotRepo',
+  'copilotUser',
+  'sharedGit',
+]);
+
 async function copyOrMoveNode(
   manager: MemoryManager,
   node: MemoryNode,
   fromScope: MemoryScope,
   toScope: MemoryScope,
-  move: boolean
+  toRelative: string,
+  move: boolean,
+  targetFolderRelative?: string
 ): Promise<MemoryNode> {
   const fromRoot = manager.getRootForScope(fromScope);
   const toRoot = await manager.ensureScopeDir(toScope);
@@ -24,10 +32,20 @@ async function copyOrMoveNode(
   const fromAbsolute = isMemoryFolder(node)
     ? node.absolutePath
     : node.filePath;
-  const toAbsolute = path.join(toRoot, node.relativePath);
+  const toAbsolute = path.join(toRoot, toRelative);
+  const isFolder = isMemoryFolder(node);
+  const targetFolder = manager.normalizeRelativePath(targetFolderRelative);
 
   if (await manager.pathExists(toAbsolute)) {
-    throw new Error(i18n.error.alreadyExistsAtTarget(node.relativePath));
+    throw new Error(i18n.error.alreadyExistsAtTarget(toRelative));
+  }
+
+  if (
+    isFolder &&
+    targetFolder &&
+    manager.isDescendantPath(node.relativePath, targetFolder)
+  ) {
+    throw new Error(i18n.error.cannotMoveIntoSelf());
   }
 
   if (move) {
@@ -38,11 +56,10 @@ async function copyOrMoveNode(
 
   if (toScope === 'sharedGit') {
     const manifest = await readManifest(toRoot);
-    if (isMemoryFolder(node)) {
-      manifest.folders[node.relativePath] =
-        manifest.folders[node.relativePath] ?? {};
+    if (isFolder) {
+      manifest.folders[toRelative] = manifest.folders[toRelative] ?? {};
     } else {
-      manifest.files[node.relativePath] = manifest.files[node.relativePath] ?? {};
+      manifest.files[toRelative] = manifest.files[toRelative] ?? {};
     }
     await writeManifest(toRoot, manifest);
   }
@@ -51,17 +68,26 @@ async function copyOrMoveNode(
     const fromManifestRoot = manager.getRootForScope(fromScope);
     if (fromManifestRoot) {
       const manifest = await readManifest(fromManifestRoot);
-      removeManifestPaths(manifest, node.relativePath, isMemoryFolder(node));
+      removeManifestPaths(manifest, node.relativePath, isFolder);
       await writeManifest(fromManifestRoot, manifest);
     }
   }
 
-  if (isMemoryFolder(node)) {
+  await manager.transferCopilotStyleOverlay(
+    fromScope,
+    toScope,
+    node.relativePath,
+    toRelative,
+    isFolder,
+    move
+  );
+
+  if (isFolder) {
     return {
       kind: 'folder',
       scope: toScope,
-      name: node.name,
-      relativePath: node.relativePath,
+      name: path.posix.basename(toRelative),
+      relativePath: toRelative,
       absolutePath: toAbsolute,
     };
   }
@@ -69,11 +95,60 @@ async function copyOrMoveNode(
   return {
     kind: 'file',
     scope: toScope,
-    name: node.name,
-    relativePath: node.relativePath,
+    name: path.posix.basename(toRelative),
+    relativePath: toRelative,
     filePath: toAbsolute,
     format: node.format,
   };
+}
+
+function resolveTargetRelativePath(
+  manager: MemoryManager,
+  node: MemoryNode,
+  targetFolderRelative?: string
+): string {
+  const baseName = path.posix.basename(node.relativePath);
+  const targetFolder = manager.normalizeRelativePath(targetFolderRelative);
+  return targetFolder ? `${targetFolder}/${baseName}` : node.relativePath;
+}
+
+export async function moveNodeToScope(
+  manager: MemoryManager,
+  node: MemoryNode,
+  toScope: MemoryScope,
+  targetFolderRelative?: string,
+  move = true
+): Promise<MemoryNode> {
+  const fromScope = node.scope;
+
+  if (fromScope === toScope) {
+    throw new Error(i18n.error.sameSourceAndTarget());
+  }
+
+  if (
+    fromScope === 'external' ||
+    toScope === 'external' ||
+    !MUTABLE_SCOPES.has(fromScope) ||
+    !MUTABLE_SCOPES.has(toScope)
+  ) {
+    throw new Error(i18n.error.crossScopeMoveUnsupported());
+  }
+
+  const toRelative = resolveTargetRelativePath(
+    manager,
+    node,
+    targetFolderRelative
+  );
+
+  return copyOrMoveNode(
+    manager,
+    node,
+    fromScope,
+    toScope,
+    toRelative,
+    move,
+    targetFolderRelative
+  );
 }
 
 export async function syncToCopilotRepo(
@@ -85,7 +160,14 @@ export async function syncToCopilotRepo(
     throw new Error(i18n.error.syncFromSharedGitOnly());
   }
 
-  return copyOrMoveNode(manager, node, 'sharedGit', 'copilotRepo', move);
+  return copyOrMoveNode(
+    manager,
+    node,
+    'sharedGit',
+    'copilotRepo',
+    node.relativePath,
+    move
+  );
 }
 
 export async function promoteToGit(
@@ -97,7 +179,14 @@ export async function promoteToGit(
     throw new Error(i18n.error.promoteFromCopilotOnly());
   }
 
-  return copyOrMoveNode(manager, node, node.scope, 'sharedGit', move);
+  return copyOrMoveNode(
+    manager,
+    node,
+    node.scope,
+    'sharedGit',
+    node.relativePath,
+    move
+  );
 }
 
 export async function copyNodeToScope(
@@ -109,5 +198,5 @@ export async function copyNodeToScope(
     throw new Error(i18n.error.sameSourceAndTarget());
   }
 
-  return copyOrMoveNode(manager, node, node.scope, toScope, false);
+  return moveNodeToScope(manager, node, toScope, undefined, false);
 }

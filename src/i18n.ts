@@ -140,6 +140,8 @@ export const i18n = {
       t('External files are read-only. Use Import to memory to copy them.'),
     alreadyExistsAtTarget: (path: string) =>
       t('"{0}" already exists at the destination.', path),
+    crossScopeMoveUnsupported: () =>
+      t('This item cannot be moved to that destination.'),
   },
   chat: {
     shortPrompt: () => t('Use the attached memory as project context.'),

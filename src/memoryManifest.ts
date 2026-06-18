@@ -125,6 +125,15 @@ export function getManifestPath(repoDir: string): string {
   return path.join(repoDir, MANIFEST_FILENAME);
 }
 
+export async function manifestExists(repoDir: string): Promise<boolean> {
+  try {
+    await fs.access(getManifestPath(repoDir));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function readManifest(repoDir: string): Promise<MemoryManifest> {
   const manifestPath = getManifestPath(repoDir);
 
@@ -382,6 +391,52 @@ export function renameOverlayPaths(
   if (fileMeta) {
     delete overlay.files[fromRelative];
     overlay.files[toRelative] = fileMeta;
+  }
+}
+
+export function transferOverlayPaths(
+  sourceOverlay: StyleOverlay,
+  targetOverlay: StyleOverlay,
+  fromRelative: string,
+  toRelative: string,
+  isFolder: boolean,
+  removeFromSource: boolean
+): void {
+  const scratch: StyleOverlay = { folders: {}, files: {} };
+
+  if (isFolder) {
+    if (sourceOverlay.folders[fromRelative]) {
+      scratch.folders[toRelative] = { ...sourceOverlay.folders[fromRelative] };
+    }
+    for (const key of Object.keys(sourceOverlay.folders)) {
+      if (key.startsWith(`${fromRelative}/`)) {
+        const suffix = key.slice(fromRelative.length);
+        scratch.folders[`${toRelative}${suffix}`] = {
+          ...sourceOverlay.folders[key],
+        };
+      }
+    }
+    for (const key of Object.keys(sourceOverlay.files)) {
+      if (key === fromRelative || key.startsWith(`${fromRelative}/`)) {
+        const suffix = key.slice(fromRelative.length);
+        scratch.files[`${toRelative}${suffix}`] = {
+          ...sourceOverlay.files[key],
+        };
+      }
+    }
+  } else if (sourceOverlay.files[fromRelative]) {
+    scratch.files[toRelative] = { ...sourceOverlay.files[fromRelative] };
+  }
+
+  for (const [key, meta] of Object.entries(scratch.folders)) {
+    targetOverlay.folders[key] = { ...targetOverlay.folders[key], ...meta };
+  }
+  for (const [key, meta] of Object.entries(scratch.files)) {
+    targetOverlay.files[key] = { ...targetOverlay.files[key], ...meta };
+  }
+
+  if (removeFromSource) {
+    removeOverlayPaths(sourceOverlay, fromRelative, isFolder);
   }
 }
 

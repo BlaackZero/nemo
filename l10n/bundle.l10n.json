@@ -89,6 +89,7 @@
   "Colors and icons are not available for this item.": "Colors and icons are not available for this item.",
   "External files are read-only. Use Import to memory to copy them.": "External files are read-only. Use Import to memory to copy them.",
   "\"{0}\" already exists at the destination.": "\"{0}\" already exists at the destination.",
+  "This item cannot be moved to that destination.": "This item cannot be moved to that destination.",
   "Use the attached memory as project context.": "Use the attached memory as project context.",
   "Use the following project context as reference:": "Use the following project context as reference:",
   "--- Nemo: {0} ---": "--- Nemo: {0} ---",

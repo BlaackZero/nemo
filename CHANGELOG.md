@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.3] - 2026-06-18
+
+### Added
+
+- **Cross-scope drag-and-drop** — move memories between Project, Global, and Shared (Git), including into target folders; style overlays transfer with Copilot scopes.
+
+### Fixed
+
+- **Inject into Chat (macOS and all platforms)** — open chat before attach; try `github.copilot.chat.attachFile` first; attempt native attach for Project/Global files before content fallback; no extra prompt text after successful attach.
+- Drag between Project and Global no longer silently no-ops.
+- Cross-scope drag **moves** (not copies) including Shared ↔ Copilot.
+
+### Changed
+
+- Drag-and-drop uses unified `moveNodeToScope` with visible error messages on failure.
+
 ## [0.3.2] - 2026-06-18
 
 ### Added
@@ -14,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Inject into Chat** works without the file open in the editor; Project/Global memory uses reliable content injection instead of silent attach failures.
+- **`.nemo/` / `.nemo.json`** are no longer created when browsing Project/Global/External memory; the workspace store is created only for Shared (Git) writes or external style overlays.
 - Attach pipeline tries `workbench.action.chat.attachFile` before `github.copilot.chat.attachFile`.
 - Clear warning when no tree item is selected for inject/edit commands.
 
