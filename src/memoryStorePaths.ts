@@ -20,12 +20,34 @@ export function normalizeSharedPath(sharedPath: string): string {
   return normalized;
 }
 
-export function getWorkspaceFolderPath(): string | undefined {
-  return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+export function resolveWorkspaceFolderPath(
+  workspaceFolderPaths: readonly string[],
+  preferredPath?: string
+): string | undefined {
+  if (workspaceFolderPaths.length === 0) {
+    return undefined;
+  }
+
+  if (preferredPath && workspaceFolderPaths.includes(preferredPath)) {
+    return preferredPath;
+  }
+
+  return workspaceFolderPaths[0];
 }
 
-export function getSharedGitRoot(context: StorePathContext): string | undefined {
-  const workspacePath = getWorkspaceFolderPath();
+export function getWorkspaceFolderPaths(): string[] {
+  return (vscode.workspace.workspaceFolders ?? []).map((folder) => folder.uri.fsPath);
+}
+
+export function getWorkspaceFolderPath(preferredPath?: string): string | undefined {
+  return resolveWorkspaceFolderPath(getWorkspaceFolderPaths(), preferredPath);
+}
+
+export function getSharedGitRoot(
+  context: StorePathContext,
+  workspacePathOverride?: string
+): string | undefined {
+  const workspacePath = getWorkspaceFolderPath(workspacePathOverride);
   if (!workspacePath) {
     return undefined;
   }
@@ -41,7 +63,8 @@ export function getSharedRoot(context: StorePathContext): string | undefined {
 
 export function getRootForScope(
   context: StorePathContext,
-  scope: MemoryScope
+  scope: MemoryScope,
+  workspacePathOverride?: string
 ): string | undefined {
   switch (scope) {
     case 'copilotRepo':
@@ -49,9 +72,9 @@ export function getRootForScope(
     case 'copilotUser':
       return getCopilotUserMemoryDir(context.getExtensionContext());
     case 'sharedGit':
-      return getSharedGitRoot(context);
+      return getSharedGitRoot(context, workspacePathOverride);
     case 'external':
-      return getWorkspaceFolderPath();
+      return getWorkspaceFolderPath(workspacePathOverride);
   }
 }
 

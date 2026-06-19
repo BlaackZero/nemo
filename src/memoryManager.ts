@@ -48,8 +48,9 @@ import { moveNodeToScope as moveNodeToScopeSync } from './memorySync';
 import {
   getRootForScope,
   getSharedGitRoot,
-  getWorkspaceFolderPath,
+  getWorkspaceFolderPaths,
   readConfigFromWorkspace,
+  resolveWorkspaceFolderPath,
 } from './memoryStorePaths';
 import { replaceInvalidFileNameChars } from './repoIdResolver';
 import { buildDefaultMemoryContent } from './memoryTemplates';
@@ -64,6 +65,8 @@ import {
 } from './types';
 
 export type StyleManifest = MemoryManifest | GlobalStyleManifest;
+
+const ACTIVE_WORKSPACE_PATH_KEY = 'nemo.activeWorkspacePath';
 
 export class MemoryManager {
   private externalPathsCache: string[] | null = null;
@@ -88,11 +91,11 @@ export class MemoryManager {
   }
 
   getSharedMemoryDir(): string | undefined {
-    return getSharedGitRoot(this);
+    return getSharedGitRoot(this, this.getActiveWorkspacePath());
   }
 
   getSharedGitDir(): string | undefined {
-    return getSharedGitRoot(this);
+    return getSharedGitRoot(this, this.getActiveWorkspacePath());
   }
 
   invalidateExternalCache(): void {
@@ -100,7 +103,25 @@ export class MemoryManager {
   }
 
   getRootForScope(scope: MemoryScope): string | undefined {
-    return getRootForScope(this, scope);
+    return getRootForScope(this, scope, this.getActiveWorkspacePath());
+  }
+
+  getWorkspaceFolderPaths(): string[] {
+    return getWorkspaceFolderPaths();
+  }
+
+  getActiveWorkspacePath(): string | undefined {
+    const preferredPath = this.context.workspaceState?.get<string>(
+      ACTIVE_WORKSPACE_PATH_KEY
+    );
+    return resolveWorkspaceFolderPath(this.getWorkspaceFolderPaths(), preferredPath);
+  }
+
+  async setActiveWorkspacePath(workspacePath: string | undefined): Promise<void> {
+    await this.context.workspaceState?.update(
+      ACTIVE_WORKSPACE_PATH_KEY,
+      workspacePath
+    );
   }
 
   normalizeRelativePath(relativePath?: string): string {
@@ -130,7 +151,7 @@ export class MemoryManager {
 
   async ensureScopeDir(scope: MemoryScope): Promise<string> {
     if (scope === 'external') {
-      const workspaceRoot = getWorkspaceFolderPath();
+      const workspaceRoot = this.getRootForScope('external');
       if (!workspaceRoot) {
         throw new Error(i18n.error.noWorkspace());
       }

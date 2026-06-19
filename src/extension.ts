@@ -28,6 +28,10 @@ interface ImportPickItem extends vscode.QuickPickItem {
   candidate: ImportCandidate;
 }
 
+interface WorkspaceFolderPickItem extends vscode.QuickPickItem {
+  workspaceFolder: vscode.WorkspaceFolder;
+}
+
 export function activate(context: vscode.ExtensionContext): void {
   const manager = new MemoryManager(context);
   const treeProvider = new MemoryTreeProvider(manager);
@@ -42,6 +46,53 @@ export function activate(context: vscode.ExtensionContext): void {
     treeProvider.refresh();
   };
 
+  const selectSharedWorkspaceFolder = async (): Promise<boolean> => {
+    const workspaceFolders = vscode.workspace.workspaceFolders ?? [];
+    if (workspaceFolders.length === 0) {
+      void vscode.window.showWarningMessage(i18n.warning.noWorkspace());
+      return false;
+    }
+
+    if (workspaceFolders.length === 1) {
+      await manager.setActiveWorkspacePath(workspaceFolders[0].uri.fsPath);
+      return true;
+    }
+
+    const activeWorkspacePath = manager.getActiveWorkspacePath();
+    const picks: WorkspaceFolderPickItem[] = workspaceFolders.map(
+      (workspaceFolder) => ({
+        label: workspaceFolder.name,
+        description: workspaceFolder.uri.fsPath,
+        detail:
+          workspaceFolder.uri.fsPath === activeWorkspacePath
+            ? i18n.info.currentTarget()
+            : undefined,
+        workspaceFolder,
+      })
+    );
+
+    const selected = await vscode.window.showQuickPick(picks, {
+      placeHolder: i18n.prompt.sharedWorkspaceFolder(),
+      matchOnDescription: true,
+      matchOnDetail: true,
+    });
+
+    if (!selected) {
+      return false;
+    }
+
+    await manager.setActiveWorkspacePath(selected.workspaceFolder.uri.fsPath);
+    return true;
+  };
+
+  const ensureSharedTarget = async (): Promise<boolean> => {
+    const selected = await selectSharedWorkspaceFolder();
+    if (selected) {
+      refresh();
+    }
+    return selected;
+  };
+
   context.subscriptions.push(
     treeView,
     vscode.workspace.onDidChangeWorkspaceFolders(refresh),
@@ -52,6 +103,10 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
     vscode.commands.registerCommand('nemo.refresh', refresh),
     vscode.commands.registerCommand('nemo.openSharedFolder', async () => {
+      if (!(await ensureSharedTarget())) {
+        return;
+      }
+
       const sharedRoot = manager.getSharedGitDir();
       if (!sharedRoot) {
         void vscode.window.showWarningMessage(i18n.warning.noWorkspace());
@@ -68,6 +123,9 @@ export function activate(context: vscode.ExtensionContext): void {
         const scope = getScopeFromItem(item);
         if (scope === 'external') {
           void vscode.window.showWarningMessage(i18n.error.externalReadOnly());
+          return;
+        }
+        if (scope === 'sharedGit' && !(await ensureSharedTarget())) {
           return;
         }
         const parentRelative = getParentFolderRelativeFromItem(item);
@@ -96,6 +154,9 @@ export function activate(context: vscode.ExtensionContext): void {
         const scope = getScopeFromItem(item);
         if (scope === 'external') {
           void vscode.window.showWarningMessage(i18n.error.externalReadOnly());
+          return;
+        }
+        if (scope === 'sharedGit' && !(await ensureSharedTarget())) {
           return;
         }
         const parentRelative = getParentFolderRelativeFromItem(item);
@@ -245,6 +306,9 @@ export function activate(context: vscode.ExtensionContext): void {
         }
 
         try {
+          if (!(await ensureSharedTarget())) {
+            return;
+          }
           await promoteToGit(manager, node, false);
           refresh();
           void vscode.window.showInformationMessage(i18n.info.promotedToGit());
@@ -456,6 +520,13 @@ export function activate(context: vscode.ExtensionContext): void {
         return;
       }
 
+      if (
+        (targetPick.value === 'sharedGit' || targetPick.value === 'both') &&
+        !(await ensureSharedTarget())
+      ) {
+        return;
+      }
+
       const candidates = await vscode.window.withProgress(
         {
           location: vscode.ProgressLocation.Notification,
@@ -557,6 +628,13 @@ export function activate(context: vscode.ExtensionContext): void {
         );
 
         if (!targetPick) {
+          return;
+        }
+
+        if (
+          (targetPick.value === 'sharedGit' || targetPick.value === 'both') &&
+          !(await ensureSharedTarget())
+        ) {
           return;
         }
 

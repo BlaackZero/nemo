@@ -73,6 +73,7 @@ export const i18n = {
     folderDisplayLabel: () => t('Folder display name (leave empty to reset)'),
     memoryName: () => t('Memory name (without extension)'),
     memoryNamePlaceholder: () => t('backend-rules'),
+    sharedWorkspaceFolder: () => t('Select the workspace folder for Shared (Git)'),
     fileFormat: () => t('File format'),
     newName: () => t('New name'),
     iconColor: () => t('Icon color'),
@@ -99,6 +100,7 @@ export const i18n = {
     syncedToCopilot: () => t('Memory copied to Project memory.'),
     promotedToGit: () =>
       t('Memory copied to Shared (Git). Commit .nemo/ for your team.'),
+    currentTarget: () => t('Current target'),
     attachedToChat: () =>
       t('Memory attached in Copilot Chat. Edit and send when ready.'),
     contentInserted: () =>
